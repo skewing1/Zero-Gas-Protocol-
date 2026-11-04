@@ -104,9 +104,9 @@ async function deploy(asset, path, sender) {
   execFileSync('forge', [
     'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool,bool)',
     String(names.includes('BenchToken')), String(names.includes('BatchPayout')),
-    String(names.includes('ClaimSettlement')), String(path === 'P5'), '--rpc-url', rpcUrl, '--broadcast',
+    String(names.includes('ClaimSettlement')), String(path === 'P5'), '--rpc-url', rpcUrl, '--broadcast', '--slow',
     '--unlocked', '--sender', sender, '--legacy', '--with-gas-price', gasPrice.toString(),
-  ], { stdio: ['ignore', 'pipe', 'inherit'] });
+  ], { stdio: ['ignore', 'pipe', 'inherit'], timeout: 60_000 });
   const { transactions } = JSON.parse(readFileSync('broadcast/Bench.s.sol/31337/run-latest.json', 'utf8'));
   const receipts = await Promise.all(transactions.map(tx => measure(tx.hash, 'deployment')));
   assert.deepEqual(transactions.map(tx => tx.contractName), names);
