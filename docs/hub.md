@@ -208,3 +208,34 @@ spendable Base balances. A shopper who needs to enter from Ethereum must
 include that expense. Only one native portal entry receipt matched the search
 window, and no completed withdrawal flow was sampled. Use these figures as a
 screen for the payment route, with separate accounting for entry and exit.
+
+### Base Sepolia checkout
+
+With the locked Node dependencies installed, set `CHECKOUT_PAYEE` to your
+receiving testnet wallet and run:
+
+```sh
+CHECKOUT_PAYEE=0xYourTestnetWallet node network/checkout/server.mjs --base-sepolia
+```
+
+Open http://127.0.0.1:8080 in a browser with an Ethereum wallet. Get the
+price and estimated total, then approve the payment. The page asks the
+wallet to add or switch to Base Sepolia if needed, sends one payment and
+polls for its receipt. A wallet without enough test ETH sees a funding
+message before approval. The shopper can obtain test ETH separately and
+request a new quote. The checkout has no bridge action.
+
+The estimate combines execution, an oracle upper bound for L1 data, and
+operator fees. The final wallet quote can change with network conditions.
+The receipt displays the actual fee when the RPC returns the required
+data. The server and wallet helper accept local Anvil and Base Sepolia
+only. Base Sepolia network parameters are from the
+[Base chain connection guide](https://docs.base.org/base-chain/quickstart/connecting-to-base).
+Local checkout still runs with `node network/checkout/server.mjs`.
+
+Live Base Sepolia verification covers read-only fee quotes. Local Anvil
+covers actual payment receipts. Wallet behavior is tested using provider
+stubs. Quote state remains in memory and the demo reports mined status
+after one confirmation. Persistent merchant fulfillment and a finality
+policy are still needed for production. The mainnet fee evidence remains
+the separate sample in `bench/rollup-fees-results.md`.

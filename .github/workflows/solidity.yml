@@ -38,8 +38,8 @@ jobs:
           if-no-files-found: error
       - name: Validate reference workload
         run: node --test scripts/validate-workload.mjs
-      - name: Test signed service discovery
-        run: node --test network/records.test.mjs
+      - name: Test service discovery and checkout wallet flow
+        run: node --test network/records.test.mjs network/checkout/payment.test.mjs
       - name: Install relayer and benchmark dependencies
         run: npm --prefix node ci
       - name: Run receipt benchmarks twice

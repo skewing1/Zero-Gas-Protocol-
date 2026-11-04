@@ -1,10 +1,35 @@
-// Browser and merchant share this exact wallet transaction shape.
 export function paymentTransaction(quote) {
   return { from: quote.payer, to: quote.payee, value: quote.value, data: quote.id };
 }
 
+const baseSepolia = {
+  chainId: '0x14a34',
+  chainName: 'Base Sepolia',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: ['https://sepolia.base.org'],
+  blockExplorerUrls: ['https://sepolia.basescan.org'],
+};
+
+async function useQuotedNetwork(wallet, chainId) {
+  const currentChain = () => wallet.request({ method: 'eth_chainId' }).then(BigInt);
+  if (await currentChain() === BigInt(chainId)) return;
+  if (chainId !== 84532) throw new Error('Switch your wallet to the quoted network.');
+  const switchNetwork = () => wallet.request({
+    method: 'wallet_switchEthereumChain', params: [{ chainId: baseSepolia.chainId }],
+  });
+  try {
+    await switchNetwork();
+  } catch (error) {
+    if (error.code !== 4902) throw error;
+    await wallet.request({ method: 'wallet_addEthereumChain', params: [baseSepolia] });
+    if (await currentChain() !== BigInt(chainId)) await switchNetwork();
+  }
+  if (await currentChain() !== BigInt(chainId)) throw new Error('Wallet is still on the wrong network.');
+}
+
 export async function approvePayment(wallet, quote) {
-  const chainId = await wallet.request({ method: 'eth_chainId' });
-  if (BigInt(chainId) !== BigInt(quote.chainId)) throw new Error('Switch your wallet to the quoted network.');
+  if (![31337, 84532].includes(quote.chainId)) throw new Error('Unsupported checkout network.');
+  if (quote.canPay === false) throw new Error('Insufficient ETH on the quoted network.');
+  await useQuotedNetwork(wallet, quote.chainId);
   return wallet.request({ method: 'eth_sendTransaction', params: [paymentTransaction(quote)] });
 }

@@ -2,21 +2,30 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createMerchant } from './merchant.mjs';
 
-const rpcUrl = 'http://127.0.0.1:8545';
+const testnet = process.argv.includes('--base-sepolia');
+const chainId = testnet ? 84532 : 31337;
+const rpcUrl = process.env.CHECKOUT_RPC_URL ?? (testnet ? 'https://sepolia.base.org' : 'http://127.0.0.1:8545');
 async function rpc(method, ...params) {
   const response = await fetch(rpcUrl, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(15_000),
   });
   const { result, error } = await response.json();
-  if (!response.ok || error) throw new Error(error?.message ?? 'Local RPC unavailable');
+  if (!response.ok || error) throw new Error(error?.message ?? 'Checkout RPC unavailable');
   return result;
 }
 
-if (BigInt(await rpc('eth_chainId')) !== 31337n) throw new Error('Start a local Anvil on chain 31337');
-const [, payee] = await rpc('eth_accounts');
-const merchant = createMerchant(rpc, { payee, amountWei: 10n ** 15n, chainId: 31337 });
+if (BigInt(await rpc('eth_chainId')) !== BigInt(chainId)) throw new Error(`Expected checkout chain ${chainId}`);
+const payee = process.env.CHECKOUT_PAYEE ?? (testnet ? undefined : (await rpc('eth_accounts'))[1]);
+if (!payee) throw new Error('Set CHECKOUT_PAYEE to your receiving Base Sepolia wallet address');
+const amountWei = BigInt(process.env.CHECKOUT_AMOUNT_WEI ?? 10n ** 15n);
+const rollupFees = testnet ? await import('./rollup-fees.mjs') : {};
+const merchant = createMerchant(rpc, {
+  payee, amountWei, chainId,
+  estimateFees: rollupFees.estimateBaseFees,
+  actualOperatorFee: rollupFees.operatorFee,
+});
 const assets = new Map([
   ['/', ['index.html', 'text/html']], ['/app.mjs', ['app.mjs', 'text/javascript']],
   ['/payment.mjs', ['payment.mjs', 'text/javascript']],
