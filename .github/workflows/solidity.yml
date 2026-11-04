@@ -75,6 +75,7 @@ jobs:
         run: |
           node scripts/hub/bench-pilot.mjs
           node scripts/hub/bench-pilot.mjs --clearing
+          node scripts/hub/bench-pilot.mjs --checkout
       - name: Upload native pilot receipts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -84,4 +85,6 @@ jobs:
             bench/native-pilot-results.json
             bench/native-clearing-results.md
             bench/native-clearing-results.json
+            bench/direct-checkout-results.md
+            bench/direct-checkout-results.json
           if-no-files-found: error

@@ -9,6 +9,9 @@ import {
 } from '../../node/node_modules/viem/_esm/index.js';
 import { mnemonicToAccount } from '../../node/node_modules/viem/_esm/accounts/index.js';
 
+import { createMerchant } from '../../network/checkout/merchant.mjs';
+import { approvePayment } from '../../network/checkout/payment.mjs';
+
 const portReservation = createServer();
 portReservation.listen(0, '127.0.0.1');
 await once(portReservation, 'listening');
@@ -19,9 +22,11 @@ const gasPrice = 2_000_000_000n;
 const deposit = 10n ** 15n;
 const mnemonic = 'test test test test test test test test test test test junk';
 const clearing = process.argv.includes('--clearing');
+const checkout = process.argv.includes('--checkout');
+assert(!(clearing && checkout), 'Choose one benchmark mode');
 const contractName = clearing ? 'NativeClearingPilot' : 'NativePaymentPilot';
 const output = clearing ? 'bench/native-clearing-results' : 'bench/native-pilot-results';
-const artifact = JSON.parse(readFileSync(`out/${contractName}.sol/${contractName}.json`, 'utf8'));
+const artifact = checkout ? null : JSON.parse(readFileSync(`out/${contractName}.sol/${contractName}.json`, 'utf8'));
 const types = {
   HubTransfer: [
     { name: 'from', type: 'address' }, { name: 'to', type: 'address' },
@@ -205,8 +210,106 @@ async function clearWindow(accounts, operator, contract, payments, initial, expe
   row.paymentList = payments.map(payment => ({ ...payment, amount: payment.amount.toString() }));
   return row;
 }
+async function benchCheckout(shoppers, payees, visits) {
+  await rpc('anvil_reset');
+  const accounts = [...shoppers, ...payees];
+  const amount = 10n ** 15n;
+  const payments = [];
+  const totals = new Map();
+  for (let visit = 0; visit < visits; visit++) {
+    for (const { address: from } of shoppers) {
+      const to = payees[visit % payees.length].address;
+      payments.push({ from, to, amount });
+      const key = `${from}:${to}`;
+      totals.set(key, { from, to, amount: amount + (totals.get(key)?.amount ?? 0n) });
+    }
+  }
+  const expected = new Map(await Promise.all(accounts.map(async ({ address }) => [addressKey(address), await balance(address)])));
+  for (const { from, to, amount: value } of payments) {
+    expected.set(addressKey(from), expected.get(addressKey(from)) - value);
+    expected.set(addressKey(to), expected.get(addressKey(to)) + value);
+  }
+  const merchants = new Map(payees.map(({ address: payee }) => [
+    payee, createMerchant(rpc, { payee, amountWei: amount, chainId }),
+  ]));
+  async function run(list, useCheckout) {
+    await rpc('anvil_reset');
+    const rows = [];
+    const quotes = [];
+    for (const { from, to, amount: value } of list) {
+      if (!useCheckout) {
+        rows.push(await send('direct', from, to, value));
+        continue;
+      }
+      const merchant = merchants.get(to);
+      const quote = await merchant.quote(from);
+      const wallet = {
+        async request({ method, params }) {
+          if (method === 'eth_chainId') return rpc(method);
+          assert.equal(method, 'eth_sendTransaction');
+          const [tx] = params;
+          const row = await send('checkout', tx.from, tx.to, BigInt(tx.value), tx.data);
+          rows.push(row);
+          return row.receipt.transactionHash;
+        },
+      };
+      const txHash = await approvePayment(wallet, quote);
+      assert.equal((await merchant.verify(quote.id, txHash)).state, 'paid');
+      if (quotes.length === 0) {
+        const other = await merchant.quote(from);
+        await assert.rejects(merchant.verify(other.id, txHash), /does not pay this quote/);
+      }
+      quotes.push(quote);
+    }
+    const fees = new Map();
+    for (const row of rows) {
+      const key = addressKey(row.tx.from);
+      fees.set(key, (fees.get(key) ?? 0n) + fee(row));
+    }
+    const walletBalances = await Promise.all(accounts.map(async ({ address }) => {
+      const key = addressKey(address);
+      const actual = await balance(address);
+      assert.equal(actual + (fees.get(key) ?? 0n), expected.get(key));
+      return actual.toString();
+    }));
+    return { summary: summarize(rows), rows, quotes, walletBalances };
+  }
+  const p0 = await run(payments, false);
+  const p0Net = totals.size === payments.length ? p0 : await run([...totals.values()], false);
+  const directCheckout = await run(payments, true);
+  return { shoppers: shoppers.length, merchants: payees.length, visits, payments: payments.length, p0, p0Net, directCheckout };
+}
+
+async function runCheckout(accounts, client) {
+  const shoppers = accounts.slice(0, 20);
+  const payees = accounts.slice(20);
+  const results = [];
+  for (const [visits, merchants] of [[1, 1], [10, 1], [10, 3]]) {
+    results.push(await benchCheckout(shoppers, payees.slice(0, merchants), visits));
+  }
+  const gasIncrease = (cost, baseline) => (100 * (cost / baseline - 1)).toFixed(2) + '%';
+  const lines = [
+    '# Direct ETH checkout benchmark', '',
+    `Local Prague receipts from ${client}. These are synthetic shopper-to-merchant workloads with no customer-to-customer payments.`,
+    'A checkout quote specifies the price, estimated network fee, chain and destination wallet. The wallet sends one transfer with a 16-byte quote identifier. The merchant verifies the mined transaction against that quote.',
+    'P0 uses one plain ETH transfer per purchase. P0-net uses one plain ETH transfer per shopper/merchant pair over the entire window. All three finish with equivalent fee-adjusted wallet balances.',
+    'P0-net combines purchases into one later settlement. The checkout path confirms purchases individually as transactions are mined.',
+    '',
+    '| Shoppers | Merchants | Purchases per shopper | P0 gas | P0-net gas | Checkout gas | Checkout fee (wei) | Extra gas vs P0 | Extra gas vs P0-net |',
+    '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...results.map(({ shoppers, merchants, visits, p0, p0Net, directCheckout }) =>
+      `| ${shoppers} | ${merchants} | ${visits} | ${p0.summary.gas} | ${p0Net.summary.gas} | ${directCheckout.summary.gas} | ${directCheckout.summary.feeWei} | ${gasIncrease(directCheckout.summary.gas, p0.summary.gas)} | ${gasIncrease(directCheckout.summary.gas, p0Net.summary.gas)} |`),
+    '',
+    'No contract deployment, deposits or withdrawals are required. Results cover local transaction costs. Wallet interaction time, merchant hosting costs, and public-network fees are unmeasured.', '',
+  ];
+  mkdirSync('bench', { recursive: true });
+  writeFileSync('bench/direct-checkout-results.json', JSON.stringify({ client, chainId, results }, null, 2));
+  writeFileSync('bench/direct-checkout-results.md', lines.join('\n'));
+  console.log(lines.join('\n'));
+}
+
 const anvil = spawn('anvil', ['--silent', '--host', '127.0.0.1', '--port', String(port),
-  '--chain-id', String(chainId), '--hardfork', 'prague', '--accounts', clearing ? '102' : '21', '--mnemonic', mnemonic,
+  '--chain-id', String(chainId), '--hardfork', 'prague', '--accounts', clearing ? '102' : checkout ? '24' : '21', '--mnemonic', mnemonic,
   '--prune-history'], { stdio: ['ignore', 'inherit', 'inherit'] });
 let anvilError;
 anvil.on('error', error => { anvilError = error; });
@@ -221,54 +324,58 @@ try {
   assert.match(ready, /anvil/i);
   assert.equal(BigInt(await rpc('eth_chainId')), BigInt(chainId));
   const [operator, ...unlocked] = await rpc('eth_accounts');
-  assert.equal(unlocked.length, clearing ? 101 : 20);
+  assert.equal(unlocked.length, clearing ? 101 : checkout ? 23 : 20);
   const accounts = unlocked.map((address, index) => {
     const account = mnemonicToAccount(mnemonic, { addressIndex: index + 1 });
     assert.equal(addressKey(account.address), addressKey(address));
     return account;
   });
-  const results = [];
-  for (const reuse of [1, 10, 100]) {
-    results.push(await bench(accounts.slice(0, 20), operator, reuse, 3));
-    console.log(`Measured ${reuse} payments per account`);
+  if (checkout) {
+    await runCheckout(accounts, ready);
+  } else {
+    const results = [];
+    for (const reuse of [1, 10, 100]) {
+      results.push(await bench(accounts.slice(0, 20), operator, reuse, 3));
+      console.log(`Measured ${reuse} payments per account`);
+    }
+    if (clearing) {
+      results.push(await bench(accounts, operator, 100, 100));
+      console.log('Measured 100 unique counterparties per account');
+    }
+    const savings = (cost, baseline) => (100 * (1 - cost / baseline)).toFixed(2) + '%';
+    const lines = [
+      clearing ? '# Jointly authorized native clearing pilot' : '# Single-chain native payment pilot',
+      '', `Local Prague receipts from ${ready}. Each workload starts from a fresh snapshot.`,
+      'Both baselines use direct EOA transfers from the same starting state. P0-net sends one transfer per payer/payee pair.',
+      'All paths finish with equivalent fee-adjusted wallet balances and withdraw every remaining balance.',
+      clearing ? 'Each participant signs the same window with a commitment to its payment list. Clients must retain and validate that list off chain. The contract checks consent and net balance conservation.' : 'The pilot checks every signed payment event.',
+      'When every pair is unique, P0 and P0-net use the same measured receipt set.',
+      'Pilot totals include deployment, deposits, signed batches and withdrawals. Calldata is included in execution gas.',
+      'The pilot verifies submitted signatures on chain. SP1 proving, durable off-chain list publication and cross-chain relays are unmeasured.',
+      'The 90–99% target for a validity-proven hub remains unmeasured.',
+      '',
+      '| Participants | Counterparties/account | Payments/account | Payments | P0 gas | P0-net gas | Pilot gas | Savings vs P0 | Savings vs P0-net |',
+      '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+      ...results.map(({ participants, counterparties, reuse, payments, p0, p0Net, pilot }) =>
+        `| ${participants} | ${Math.min(counterparties, reuse)} | ${reuse} | ${payments} | ${p0.summary.gas} | ${p0Net.summary.gas} | ${pilot.summary.gas} | ${savings(pilot.summary.gas, p0.summary.gas)} | ${savings(pilot.summary.gas, p0Net.summary.gas)} |`),
+      '', '| Participants | Payments/account | Deployment gas | Deposit gas | Settlement gas | Withdrawal gas | Pilot fee (wei) |',
+      '| ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+      ...results.map(({ participants, reuse, pilot: { stages, summary } }) =>
+        `| ${participants} | ${reuse} | ${stages.deployment.gas} | ${stages.deposit.gas} | ${stages.settlement.gas} | ${stages.withdrawal.gas} | ${summary.feeWei} |`),
+      '', '| Participants | Payments/account | Deposit + withdrawal gas | 90% P0-net gas budget | 99% P0-net gas budget |',
+      '| ---: | ---: | ---: | ---: | ---: |',
+      ...results.map(({ participants, reuse, p0Net, pilot: { stages } }) =>
+        `| ${participants} | ${reuse} | ${stages.deposit.gas + stages.withdrawal.gas} | ${Math.floor(p0Net.summary.gas / 10)} | ${Math.floor(p0Net.summary.gas / 100)} |`),
+      '', 'The last table compares measured entry and exit costs with the full budget for each target. It assumes this pilot’s entry and exit design.',
+      '', 'Negative savings mean the pilot costs more. P0 includes the effect of choosing a settlement window.', '',
+    ];
+    mkdirSync('bench', { recursive: true });
+    writeFileSync(`${output}.json`, JSON.stringify({
+      client: ready, chainId, artifactHash: keccak256(artifact.bytecode.object), results,
+    }, null, 2));
+    writeFileSync(`${output}.md`, lines.join('\n'));
+    console.log(lines.join('\n'));
   }
-  if (clearing) {
-    results.push(await bench(accounts, operator, 100, 100));
-    console.log('Measured 100 unique counterparties per account');
-  }
-  const savings = (cost, baseline) => (100 * (1 - cost / baseline)).toFixed(2) + '%';
-  const lines = [
-    clearing ? '# Jointly authorized native clearing pilot' : '# Single-chain native payment pilot',
-    '', `Local Prague receipts from ${ready}. Each workload starts from a fresh snapshot.`,
-    'Both baselines use direct EOA transfers from the same starting state. P0-net sends one transfer per payer/payee pair.',
-    'All paths finish with equivalent fee-adjusted wallet balances and withdraw every remaining balance.',
-    clearing ? 'Each participant signs the same window with a commitment to its payment list. Clients must retain and validate that list off chain. The contract checks consent and net balance conservation.' : 'The pilot checks every signed payment event.',
-    'When every pair is unique, P0 and P0-net use the same measured receipt set.',
-    'Pilot totals include deployment, deposits, signed batches and withdrawals. Calldata is included in execution gas.',
-    'The pilot verifies submitted signatures on chain. SP1 proving, durable off-chain list publication and cross-chain relays are unmeasured.',
-    'The 90–99% target for a validity-proven hub remains unmeasured.',
-    '',
-    '| Participants | Counterparties/account | Payments/account | Payments | P0 gas | P0-net gas | Pilot gas | Savings vs P0 | Savings vs P0-net |',
-    '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ...results.map(({ participants, counterparties, reuse, payments, p0, p0Net, pilot }) =>
-      `| ${participants} | ${Math.min(counterparties, reuse)} | ${reuse} | ${payments} | ${p0.summary.gas} | ${p0Net.summary.gas} | ${pilot.summary.gas} | ${savings(pilot.summary.gas, p0.summary.gas)} | ${savings(pilot.summary.gas, p0Net.summary.gas)} |`),
-    '', '| Participants | Payments/account | Deployment gas | Deposit gas | Settlement gas | Withdrawal gas | Pilot fee (wei) |',
-    '| ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ...results.map(({ participants, reuse, pilot: { stages, summary } }) =>
-      `| ${participants} | ${reuse} | ${stages.deployment.gas} | ${stages.deposit.gas} | ${stages.settlement.gas} | ${stages.withdrawal.gas} | ${summary.feeWei} |`),
-    '', '| Participants | Payments/account | Deposit + withdrawal gas | 90% P0-net gas budget | 99% P0-net gas budget |',
-    '| ---: | ---: | ---: | ---: | ---: |',
-    ...results.map(({ participants, reuse, p0Net, pilot: { stages } }) =>
-      `| ${participants} | ${reuse} | ${stages.deposit.gas + stages.withdrawal.gas} | ${Math.floor(p0Net.summary.gas / 10)} | ${Math.floor(p0Net.summary.gas / 100)} |`),
-    '', 'The last table compares measured entry and exit costs with the full budget for each target. It assumes this pilot’s entry and exit design.',
-    '', 'Negative savings mean the pilot costs more. P0 includes the effect of choosing a settlement window.', '',
-  ];
-  mkdirSync('bench', { recursive: true });
-  writeFileSync(`${output}.json`, JSON.stringify({
-    client: ready, chainId, artifactHash: keccak256(artifact.bytecode.object), results,
-  }, null, 2));
-  writeFileSync(`${output}.md`, lines.join('\n'));
-  console.log(lines.join('\n'));
 } finally {
   if (anvil.pid && anvil.exitCode === null) {
     const exited = once(anvil, 'exit');

@@ -152,3 +152,24 @@ publication service is included in this experiment.
 See `bench/native-clearing-results.md` for the measured execution, entry,
 exit and deployment costs. Off-chain coordination, list availability,
 and the time to collect signatures remain outside the gas measurement.
+
+### Direct wallet checkout
+
+Run `anvil --hardfork prague` and then `node network/checkout/server.mjs`.
+Open http://127.0.0.1:8080 with a local development wallet on chain 31337.
+The demo quotes 0.001 ETH to the second Anvil account. Get the price and
+estimated fee, then approve one transfer. The wallet shows the final fee
+before approval. The merchant matches the mined transaction to a random
+16-byte quote identifier, payer, payee, amount, chain and quote window.
+The quote store is in memory and verification checks the currently canonical
+block with one mined confirmation. This demo records payment status only.
+Production fulfillment needs persistent order records and a finality policy.
+
+With Node dependencies installed, run `node scripts/hub/bench-pilot.mjs --checkout`
+to benchmark the same client and merchant code using a local RPC wallet adapter.
+The benchmark resets Anvil between paths, checks final principal and rejects
+a transaction presented for a different quote. The synthetic merchant workloads
+and measured results are in `bench/direct-checkout-results.md`. Raw receipts,
+quotes and transaction inputs are emitted as a CI artifact. Random identifiers
+can contain different numbers of zero bytes, causing small gas differences
+between runs.
