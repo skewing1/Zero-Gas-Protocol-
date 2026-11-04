@@ -7,11 +7,13 @@ import {ProtocolAccount} from "./ProtocolAccount.sol";
 contract Settler {
     bytes32 private immutable delegationCodeHash;
     bytes32 public receiptAccumulator;
+    uint256 public receiptCount;
 
     error InvalidLength();
     error InvalidDelegation();
 
     event Skipped(address indexed account, bytes32 indexed intentHash, bytes revertData);
+    event Executed(address indexed account, bytes32 indexed intentHash, uint256 receiptIndex, bytes32 accumulator);
     event BatchReceipt(bytes32 indexed accumulator);
 
     constructor(ProtocolAccount implementation) {
@@ -33,7 +35,9 @@ contract Settler {
                 continue;
             }
             try ProtocolAccount(payable(account)).executeIntent(intents[index], signatures[index], fees[index], msg.sender) {
-                receiptAccumulator = keccak256(abi.encode(receiptAccumulator, account, digest, block.number));
+                bytes32 accumulator = keccak256(abi.encode(receiptAccumulator, account, digest, block.number));
+                receiptAccumulator = accumulator;
+                emit Executed(account, digest, receiptCount++, accumulator);
             } catch (bytes memory reason) {
                 emit Skipped(account, digest, reason);
             }
