@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createWalletClient, encodeFunctionData, http, parseAbi } from '../node/node_modules/viem/_esm/index.js';
+import { createWalletClient, encodeFunctionData, http, parseAbi, keccak256, toHex } from '../node/node_modules/viem/_esm/index.js';
 import { mnemonicToAccount, privateKeyToAccount } from '../node/node_modules/viem/_esm/accounts/index.js';
 import { encodePayments, epochTypes, epochDomain } from '../node/dist/epochs.js';
 
+const outputDir = process.argv.find(arg => arg.startsWith('--output='))?.slice(9) ?? 'bench';
 const rpcUrl = 'http://127.0.0.1:8545';
 const chain = { id: 31337, name: 'Anvil', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: [rpcUrl] } } };
@@ -156,7 +157,15 @@ async function main() {
           await rpc('anvil_stopImpersonatingAccount', account.address);
           if (scenario.payers > 1 && (index + 1) % 20 === 0) console.log(`P0 completed for ${index + 1}/${wallets.length} payers`);
         }
+        console.log(`P0 complete: ${scenario.name}/${asset}, ${direct.length} receipts`);
         const directBalances = await verify();
+        for (const [index, account] of wallets.entries()) {
+          const principal = asset === 'native' ? payments[index].reduce((sum, payment) => sum + payment.amount, 0n) : 0n;
+          const spent = direct.filter(tx => tx.from.toLowerCase() === account.address.toLowerCase())
+            .reduce((sum, tx) => sum + BigInt(tx.feeWei), 0n);
+          assert.equal(BigInt(await rpc('eth_getBalance', account.address, 'latest')), 10n ** 20n - principal - spent,
+            'P0 payer principal plus its receipt-derived gas');
+        }
         assert(await rpc('evm_revert', baselineSnapshot));
 
         const deployment = await deployEpoch(treasury);
@@ -181,11 +190,25 @@ async function main() {
         }));
         const execution = await send(relayer.address, deployment.settler.contractAddress, 0n,
           encodeFunctionData({ abi: epochAbi, functionName: 'settle', args: [submissions] }));
+        const trace = await rpc('debug_traceTransaction', execution.hash, { tracer: 'callTracer' });
+        let signatureGas = 0;
+        let signatureChecks = 0;
+        function visit(frame) {
+          if (frame.to?.toLowerCase() === '0x0000000000000000000000000000000000000001') {
+            signatureGas += Number(BigInt(frame.gasUsed)); signatureChecks++;
+          }
+          for (const child of frame.calls ?? []) visit(child);
+        }
+        visit(trace);
+        assert.equal(signatureChecks, wallets.length, 'One actual ecrecover per payer epoch');
         assert.deepEqual(await verify(), directBalances);
-        assert.equal(execution.logs.filter(log => log.address.toLowerCase() === deployment.settler.contractAddress.toLowerCase()).length,
+        assert.equal(execution.logs.filter(log => log.address.toLowerCase() === deployment.settler.contractAddress.toLowerCase() &&
+          log.topics[0] === keccak256(toHex('EpochRecorded(address,bytes32,bytes32)'))).length,
           wallets.length, 'One successful receipt per payer');
         assert.equal(await rpc('eth_getBalance', deployment.settler.contractAddress, 'latest'), '0x0');
-        for (const account of wallets) {
+        for (const [index, account] of wallets.entries()) {
+          const principal = asset === 'native' ? payments[index].reduce((sum, payment) => sum + payment.amount, 0n) : 0n;
+          assert.equal(BigInt(await rpc('eth_getBalance', account.address, 'latest')), 10n ** 20n - principal, 'Epoch payer principal');
           assert.equal(await rpc('eth_call', { to: token, data: encodeFunctionData({
             abi: tokenAbi, functionName: 'balanceOf', args: [account.address],
           }) }, 'latest'), '0x' + '0'.repeat(64));
@@ -196,7 +219,7 @@ async function main() {
         const cold = sum([deployment.implementation, deployment.settler, delegation, execution]);
         const shared = sum(setup);
         const record = {
-          scenario, asset, payments: direct.length, baseline: base, steady, cold, sharedSetup: shared,
+          scenario, asset, payments: direct.length, signatureGas, signatureChecks, baseline: base, steady, cold, sharedSetup: shared,
           settlementSavingPercent: savings(steady.gas, base.gas),
           coldSavingPercent: savings(cold.gas, base.gas),
           allInSavingPercent: savings(cold.gas + shared.gas, base.gas + shared.gas),
@@ -204,16 +227,16 @@ async function main() {
           receipts: { direct, epoch: [deployment.implementation, deployment.settler, delegation, execution], setup },
         };
         results.push(record);
-        mkdirSync('bench', { recursive: true });
-        writeFileSync('bench/epoch-progress.json', JSON.stringify(results, null, 2) + '\n');
+        mkdirSync(outputDir, { recursive: true });
+        writeFileSync(`${outputDir}/epoch-progress.json`, JSON.stringify(results, null, 2) + '\n');
         console.log(`${scenario.name}/${asset}: P0 ${base.gas}, epoch ${steady.gas}, all-in saving ${record.allInSavingPercent}%`);
       } finally {
         assert(await rpc('evm_revert', outer));
       }
     }
   }
-  mkdirSync('bench', { recursive: true });
-  writeFileSync('bench/epoch-results.json', JSON.stringify(results, null, 2) + '\n');
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(`${outputDir}/epoch-results.json`, JSON.stringify(results, null, 2) + '\n');
   const lines = [
     '# Compact signed settlement epochs', '',
     'Measured on local Anvil, Prague. Every baseline payment is a separate mined transaction.',
@@ -228,6 +251,6 @@ async function main() {
     '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |',
     ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.payments} | ${row.baseline.gas} | ${row.steady.gas} | ${row.cold.gas} | ${row.settlementSavingPercent}% | ${row.allInSavingPercent}% |`),
   ];
-  writeFileSync('bench/epoch-results.md', lines.join('\n') + '\n');
+  writeFileSync(`${outputDir}/epoch-results.md`, lines.join('\n') + '\n');
 }
 await main();

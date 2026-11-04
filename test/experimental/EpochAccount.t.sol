@@ -119,4 +119,28 @@ contract EpochAccountTest is Test {
         account.executeEpoch(e,to,data,sig,0,RELAYER);
         assertTrue(callback.rejected()); assertEq(address(callback).balance, 20);
     }
+    function testCrossAccountAndRecipientTampering() public {
+        address[] memory to = recipients();
+        bytes memory data = abi.encodePacked(uint8(0), uint64(20));
+        EpochAccount.Epoch memory e = make(address(0), data, to); bytes memory sig = sign(e);
+        EpochAccount second = EpochAccount(payable(vm.addr(0xb0b)));
+        vm.attachDelegation(vm.signDelegation(address(implementation), 0xb0b));
+        vm.expectRevert(ProtocolAccount.Unauthorized.selector);
+        second.executeEpoch(e,to,data,sig,0,RELAYER);
+        to[0] = RELAYER;
+        vm.expectRevert(EpochAccount.CommitmentMismatch.selector);
+        account.executeEpoch(e,to,data,sig,0,RELAYER);
+    }
+    function testRevokedDelegationCannotRecordEpoch() public {
+        address[] memory to = recipients();
+        bytes memory data = abi.encodePacked(uint8(0), uint64(20));
+        EpochAccount.Epoch memory e = make(address(0), data, to);
+        EpochSettler.Submission[] memory batch = new EpochSettler.Submission[](1);
+        batch[0] = EpochSettler.Submission(address(account), e, to, data, sign(e), 0);
+        vm.attachDelegation(vm.signDelegation(address(0), KEY));
+        settler.settle(batch);
+        assertEq(settler.receiptAccumulator(), bytes32(0));
+        assertEq(address(account).balance, 100 ether); assertEq(BOB.balance, 0);
+    }
+
 }

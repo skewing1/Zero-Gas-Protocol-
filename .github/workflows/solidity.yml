@@ -105,12 +105,15 @@ jobs:
           cp bench/epoch-results.json /tmp/first-epochs.json
           node scripts/bench-epochs.mjs
           node scripts/check-epoch-determinism.mjs /tmp/first-epochs.json bench/epoch-results.json
+          node scripts/epoch-decision.mjs
           cat bench/epoch-results.md
+          cat bench/epoch-decision.md
       - name: Upload all epoch receipts and report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compact-epoch-benchmarks
           path: |
             bench/epoch-results.md
+            bench/epoch-decision.md
             bench/epoch-results.json
           if-no-files-found: error
