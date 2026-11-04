@@ -19,17 +19,17 @@ export class Submitter {
     if (active) {
       const attempts = this.ledger.attempts(active.id);
       const prior = attempts.at(-1)!;
-      const known = await this.client.getTransaction({ hash: prior.hash }).then(() => true, () => false);
-      if (!known && Date.now() - prior.sentAt < this.config.replaceAfterMs) {
-        await this.broadcast(prior.raw);
-        return;
-      }
-      if (Date.now() - prior.sentAt < this.config.replaceAfterMs) return;
       const pending: Entry[] = [];
       for (const hash of active.hashes) {
         const entry = this.ledger.get(hash)!.entry;
         if (block.timestamp <= entry.intent.deadline && await this.pool.delegated(entry) &&
           await this.pool.nonce(entry) === entry.intent.nonceSeq) pending.push(entry);
+      }
+      const stale = Date.now() - prior.sentAt >= this.config.replaceAfterMs;
+      if (!stale) {
+        const known = await this.client.getTransaction({ hash: prior.hash }).then(() => true, () => false);
+        if (!known && pending.length === active.hashes.length) await this.broadcast(prior.raw);
+        return;
       }
       const bumped = (current: bigint, old: string) => {
         const minimum = BigInt(old) * 1125n / 1000n + 1n;

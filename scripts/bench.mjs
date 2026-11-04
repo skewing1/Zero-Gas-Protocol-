@@ -281,6 +281,7 @@ async function run(workload, asset, path, sender, relayer) {
   return {
     path, ...totals, deployment, ...protocolMetrics,
     delegation: sum(receipts.filter(row => row.stage === 'delegation')),
+    prefunding: sum(receipts.filter(row => row.stage === 'prefund')),
     gasPerPayment: totals.gas / payments.length, finalBalances: final.map(String),
     feePerPaymentWei: (BigInt(totals.feeWei) / BigInt(payments.length)).toString(),
     deploymentGasPerPayment: deployment.gas / payments.length,
@@ -295,9 +296,10 @@ function markdown(groups) {
     '# Receipt-based payout benchmarks', '',
     'Totals include approval where required. Deployment is separate. Prefunding is excluded.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
-    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
+    'P5 includes signed intent verification. Excluded costs include ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
   ];
   for (const { workload, asset, paths } of groups) {
+    if (workload.startsWith('S')) continue;
     lines.push('', `## ${workload} · ${asset}`, '',
       '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
       '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -307,13 +309,25 @@ function markdown(groups) {
     }
     const protocol = paths.find(result => result.path === 'P5');
     if (protocol) {
-      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER precompile gas per intent: ${protocol.signatureGasPerIntent} (${protocol.signatureSharePercent}% of settlement gas). Calldata per intent: ${protocol.calldataBytesPerIntent} bytes (${protocol.calldataByteGasPerIntent} gas at 4/16 gas per byte). Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei.`);
+      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER precompile gas per intent: ${protocol.signatureGasPerIntent} (${protocol.signatureSharePercent}% of settlement gas). Calldata per intent: ${protocol.calldataBytesPerIntent} bytes (${protocol.calldataByteGasPerIntent} gas at 4/16 gas per byte). Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei. Prefunding transaction gas: ${protocol.prefunding.gas}.`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
     for (const { path, deployment, deploymentGasPerPayment, deploymentFeePerPaymentWei } of paths) {
       lines.push(`| ${path} | ${deployment.gas} | ${deployment.feeWei} | ${deploymentGasPerPayment} | ${deploymentFeePerPaymentWei} |`);
     }
+  }
+  lines.push('', '## Single-payer break-even sweep', '',
+    'Each scenario has 100 payment obligations and fresh recipients. Deployment and delegation are reported separately from settlement.', '',
+    '| Payments per payee | ETH P0 gas | ETH P5 gas | Token P0 gas | Token P5 gas |',
+    '| ---: | ---: | ---: | ---: | ---: |');
+  for (const repeats of [1, 2, 4, 5, 10, 20, 25, 50, 100]) {
+    const workload = ({ 1: 'W1', 4: 'W3', 10: 'W4' })[repeats] ?? `S${repeats}`;
+    const values = ['native', 'token'].flatMap(asset => {
+      const { paths } = groups.find(group => group.workload === workload && group.asset === asset);
+      return ['P0', 'P5'].map(path => paths.find(result => result.path === path).gas);
+    });
+    lines.push(`| ${repeats} | ${values.join(' | ')} |`);
   }
   return lines.join('\n') + '\n';
 }
@@ -324,7 +338,8 @@ async function main() {
   const [sender, relayer] = await rpc('eth_accounts');
   assert.equal(sender?.toLowerCase(), '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', 'Unexpected benchmark mnemonic');
   const groups = [];
-  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0], ['W5', 10, 0]]) {
+  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0], ['W5', 10, 0],
+    ...[2, 5, 20, 25, 50, 100].map(repeats => [`S${repeats}`, 100 / repeats, 0])]) {
     const recipients = Array.from({ length: count }, (_, i) => '0x' + (0x10000 + i).toString(16).padStart(40, '0'));
     const payouts = recipients.map(to => ({ to, amount: 0n }));
     const payments = Array.from({ length: 100 }, (_, index) => {
@@ -335,11 +350,11 @@ async function main() {
     });
     const wallets = id === 'W5' ? payments.map((_, index) => privateKeyToAccount('0x' + word(0x100000 + index))) : null;
     const workload = { id, prefund, recipients, payments, payouts, wallets,
-      tree: id === 'W5' ? null : await merkle(payments) };
+      tree: id === 'W5' || id.startsWith('S') ? null : await merkle(payments) };
     for (const asset of ['native', 'token']) {
       const paths = [];
-      const scenarios = id === 'W5' ? ['P0', 'P5'] : ['P0', 'P1', 'P1-net', 'P5'];
-      if (asset === 'native' && id !== 'W5') scenarios.push('P2');
+      const scenarios = id === 'W5' || id.startsWith('S') ? ['P0', 'P5'] : ['P0', 'P1', 'P1-net', 'P5'];
+      if (asset === 'native' && workload.tree) scenarios.push('P2');
       for (const path of scenarios) {
         const snapshot = await rpc('evm_snapshot');
         try {

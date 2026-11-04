@@ -1,4 +1,4 @@
-import { decodeEventLog, getAbiItem, type Address, type Hex, type PublicClient } from 'viem';
+import { BlockNotFoundError, TransactionReceiptNotFoundError, decodeEventLog, getAbiItem, type Address, type Hex, type PublicClient } from 'viem';
 import { abi, type NodeConfig } from './protocol.js';
 import { Ledger, type Batch, type State } from './ledger.js';
 import { Pool } from './pool.js';
@@ -56,7 +56,10 @@ export class Watcher {
     }
     const existing = this.ledger.receipt(batch.id);
     if (existing) {
-      const current = await this.client.getBlock({ blockNumber: BigInt(existing.blockNumber) }).catch(() => undefined);
+      const current = await this.client.getBlock({ blockNumber: BigInt(existing.blockNumber) }).catch(error => {
+        if (error instanceof BlockNotFoundError) return undefined;
+        throw error;
+      });
       if (current?.hash !== existing.blockHash) {
         this.ledger.resolve(batch, 'orphaned', await this.classify(batch, []));
       } else if (await this.client.getBlockNumber({ cacheTime: 0 }) - current.number >=
@@ -67,7 +70,10 @@ export class Watcher {
     }
 
     for (const attempt of this.ledger.attempts(batch.id)) {
-      const receipt = await this.client.getTransactionReceipt({ hash: attempt.hash }).catch(() => undefined);
+      const receipt = await this.client.getTransactionReceipt({ hash: attempt.hash }).catch(error => {
+        if (error instanceof TransactionReceiptNotFoundError) return undefined;
+        throw error;
+      });
       if (!receipt) continue;
       const executions: Hex[] = [];
       const fees: Record<string, bigint> = {};
