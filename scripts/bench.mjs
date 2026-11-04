@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const rpcUrl = 'http://127.0.0.1:8545';
-const mnemonic = 'test test test test test test test test test test test junk';
 const gasPrice = 2_000_000_000n;
 const gasLimit = '0x989680';
 const quantity = value => '0x' + value.toString(16);
@@ -77,7 +76,7 @@ async function send(from, to, { value = 0n, data = '0x', stage = 'settlement' } 
   return measure(hash, stage);
 }
 
-async function deploy(asset, path) {
+async function deploy(asset, path, sender) {
   const names = [];
   if (asset === 'token') names.push('BenchToken');
   if (path === 'P1' || path === 'P1-net') names.push('BatchPayout');
@@ -88,8 +87,8 @@ async function deploy(asset, path) {
     'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool)',
     String(names.includes('BenchToken')), String(names.includes('BatchPayout')),
     String(names.includes('ClaimSettlement')), '--rpc-url', rpcUrl, '--broadcast',
-    '--mnemonic', mnemonic, '--legacy', '--with-gas-price', gasPrice.toString(),
-  ], { stdio: ['ignore', 'ignore', 'inherit'] });
+    '--unlocked', '--sender', sender, '--legacy', '--with-gas-price', gasPrice.toString(),
+  ], { stdio: ['ignore', 'pipe', 'inherit'] });
   const { transactions } = JSON.parse(readFileSync('broadcast/Bench.s.sol/31337/run-latest.json', 'utf8'));
   const receipts = await Promise.all(transactions.map(tx => measure(tx.hash, 'deployment')));
   assert.deepEqual(transactions.map(tx => tx.contractName), names);
@@ -134,7 +133,7 @@ function sum(rows) {
 
 async function run(workload, asset, path, sender, relayer) {
   const { recipients, payments, payouts, tree, prefund } = workload;
-  const { addresses, receipts } = await deploy(asset, path);
+  const { addresses, receipts } = await deploy(asset, path, sender);
   const token = addresses.BenchToken;
   const total = payments.reduce((amount, payment) => amount + payment.amount, 0n);
   const balance = async to => BigInt(asset === 'native'
