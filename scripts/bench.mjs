@@ -189,19 +189,22 @@ async function p5(workload, asset, addresses, receipts, relayer) {
   ).toString('hex'));
   assert.equal(receipt.logs.filter(log => log.topics[0] === eventTopic).length, messages.length,
     `Unexpected settlement logs: ${JSON.stringify(receipt.logs.slice(0, 2))}`);
-  const trace = await rpc('debug_traceTransaction', settlement.hash, { disableMemory: true, disableStorage: true });
+  const trace = await rpc('debug_traceTransaction', settlement.hash, { tracer: 'callTracer' });
   let signatureCalls = 0;
   let signatureGas = 0;
-  for (const [index, entry] of trace.structLogs.entries()) {
-    if (!['STATICCALL', 'CALL'].includes(entry.op) || BigInt('0x' + entry.stack.at(-2).replace(/^0x/, '')) !== 1n) continue;
-    const resumed = trace.structLogs[index + 1];
-    assert.equal(resumed.depth, entry.depth, 'Unexpected ecrecover trace shape');
-    signatureGas += Number(entry.gas) - Number(resumed.gas);
-    ++signatureCalls;
+  function collect(frame) {
+    if (frame.to && BigInt(frame.to) === 1n) {
+      signatureGas += Number(BigInt(frame.gasUsed));
+      ++signatureCalls;
+    }
+    for (const call of frame.calls ?? []) collect(call);
   }
-  assert.equal(signatureCalls, messages.length, `Expected one signature check per intent (trace calls: ${JSON.stringify(trace.structLogs.filter(entry => ['STATICCALL', 'CALL'].includes(entry.op)).slice(0, 4).map(entry => [entry.op, entry.stack?.slice(-3)]))})`);
+  collect(trace);
+  assert.equal(signatureCalls, messages.length, 'Expected one ECRECOVER call per intent');
   return { signatureGas, signatureGasPerIntent: signatureGas / messages.length,
-    calldataBytesPerIntent: settlement.calldataBytes / messages.length };
+    signatureSharePercent: (100 * signatureGas / settlement.gasUsed).toFixed(2),
+    calldataBytesPerIntent: settlement.calldataBytes / messages.length,
+    calldataByteGasPerIntent: (settlement.zeroBytes * 4 + settlement.nonzeroBytes * 16) / messages.length };
 }
 
 async function run(workload, asset, path, sender, relayer) {
@@ -304,7 +307,7 @@ function markdown(groups) {
     }
     const protocol = paths.find(result => result.path === 'P5');
     if (protocol) {
-      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER call gas per intent: ${protocol.signatureGasPerIntent}. Calldata bytes per intent: ${protocol.calldataBytesPerIntent}. Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei.`);
+      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER precompile gas per intent: ${protocol.signatureGasPerIntent} (${protocol.signatureSharePercent}% of settlement gas). Calldata per intent: ${protocol.calldataBytesPerIntent} bytes (${protocol.calldataByteGasPerIntent} gas at 4/16 gas per byte). Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei.`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');

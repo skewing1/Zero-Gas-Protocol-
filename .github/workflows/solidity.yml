@@ -44,7 +44,7 @@ jobs:
         run: npm --prefix node ci
       - name: Run receipt benchmarks twice
         run: |
-          anvil --chain-id 31337 --hardfork prague --steps-tracing --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
+          anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
           trap 'kill "$!"' EXIT
           for attempt in {1..50}; do
             if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
