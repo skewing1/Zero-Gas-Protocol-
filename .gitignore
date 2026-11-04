@@ -3,3 +3,6 @@
 /lib/
 /gas-report.txt
 /broadcast/
+/node/node_modules/
+/node/dist/
+/node/*.sqlite*

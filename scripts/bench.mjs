@@ -1,7 +1,24 @@
+import { createWalletClient, encodeFunctionData, http, parseAbi } from '../node/node_modules/viem/_esm/index.js';
+import { mnemonicToAccount, privateKeyToAccount } from '../node/node_modules/viem/_esm/accounts/index.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
+const mnemonic = 'test test test test test test test test test test test junk';
+const payerWallet = mnemonicToAccount(mnemonic);
+const relayerWallet = mnemonicToAccount(mnemonic, { addressIndex: 1 });
+const benchmarkChain = { id: 31337, name: 'Anvil', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } } };
+const fields = [
+  ['payee', 'address'], ['asset', 'address'], ['amount', 'uint256'], ['feeCap', 'uint256'],
+  ['serviceId', 'bytes32'], ['manifestHash', 'bytes32'], ['nonceKey', 'uint192'], ['nonceSeq', 'uint64'],
+  ['deadline', 'uint64'],
+];
+const intentTypes = { Intent: fields.map(([name, type]) => ({ name, type })) };
+const settlerAbi = parseAbi([
+  `struct Intent { ${fields.map(([name, type]) => `${type} ${name};`).join(' ')} }`,
+  'function settleBatch(address[] accounts, Intent[] intents, bytes[] signatures, uint256[] fees)',
+]);
 const rpcUrl = 'http://127.0.0.1:8545';
 const gasPrice = 2_000_000_000n;
 const gasLimit = '0x989680';
@@ -81,12 +98,13 @@ async function deploy(asset, path, sender) {
   if (asset === 'token') names.push('BenchToken');
   if (path === 'P1' || path === 'P1-net') names.push('BatchPayout');
   if (path === 'P2') names.push('ClaimSettlement');
+  if (path === 'P5') names.push('ProtocolAccount', 'Settler');
   if (!names.length) return { addresses: {}, receipts: [] };
 
   execFileSync('forge', [
-    'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool)',
+    'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool,bool)',
     String(names.includes('BenchToken')), String(names.includes('BatchPayout')),
-    String(names.includes('ClaimSettlement')), '--rpc-url', rpcUrl, '--broadcast',
+    String(names.includes('ClaimSettlement')), String(path === 'P5'), '--rpc-url', rpcUrl, '--broadcast',
     '--unlocked', '--sender', sender, '--legacy', '--with-gas-price', gasPrice.toString(),
   ], { stdio: ['ignore', 'pipe', 'inherit'] });
   const { transactions } = JSON.parse(readFileSync('broadcast/Bench.s.sol/31337/run-latest.json', 'utf8'));
@@ -131,6 +149,51 @@ function sum(rows) {
   };
 }
 
+async function p5(workload, asset, addresses, receipts, relayer) {
+  const wallets = workload.wallets ?? [payerWallet];
+  const client = createWalletClient({ account: relayerWallet, chain: benchmarkChain, transport: http(rpcUrl) });
+  const authorizationList = await Promise.all(wallets.map(async wallet => wallet.signAuthorization({
+    contractAddress: addresses.ProtocolAccount, chainId: benchmarkChain.id,
+    nonce: Number(BigInt(await rpc('eth_getTransactionCount', wallet.address, 'latest'))),
+  })));
+  const delegationHash = await client.sendTransaction({
+    to: relayerWallet.address, authorizationList, gas: BigInt(gasLimit),
+    maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
+  });
+  receipts.push(await measure(delegationHash, 'delegation'));
+
+  const messages = workload.payments.map(({ to, amount }, index) => ({
+    payee: to, asset: asset === 'native' ? '0x' + '0'.repeat(40) : addresses.BenchToken,
+    amount, feeCap: 0n, serviceId: '0x' + word(1), manifestHash: '0x' + word(2),
+    nonceKey: 0n, nonceSeq: BigInt(workload.wallets ? 0 : index), deadline: (1n << 64n) - 1n,
+  }));
+  const payers = messages.map((_, index) => wallets[workload.wallets ? index : 0]);
+  const signatures = await Promise.all(messages.map((message, index) => payers[index].signTypedData({
+    domain: { name: 'ProtocolAccount', version: '1', chainId: benchmarkChain.id,
+      verifyingContract: payers[index].address },
+    types: intentTypes, primaryType: 'Intent', message,
+  })));
+  const data = encodeFunctionData({
+    abi: settlerAbi, functionName: 'settleBatch',
+    args: [payers.map(wallet => wallet.address), messages, signatures, messages.map(() => 0n)],
+  });
+  const settlement = await send(relayer, addresses.Settler, { data });
+  receipts.push(settlement);
+  const trace = await rpc('debug_traceTransaction', settlement.hash, { disableMemory: true, disableStorage: true });
+  let signatureCalls = 0;
+  let signatureGas = 0;
+  for (const [index, entry] of trace.structLogs.entries()) {
+    if (entry.op !== 'STATICCALL' || BigInt('0x' + entry.stack.at(-2).replace(/^0x/, '')) !== 1n) continue;
+    const resumed = trace.structLogs[index + 1];
+    assert.equal(resumed.depth, entry.depth, 'Unexpected ecrecover trace shape');
+    signatureGas += Number(entry.gas) - Number(resumed.gas);
+    ++signatureCalls;
+  }
+  assert.equal(signatureCalls, messages.length, 'Expected one signature check per intent');
+  return { signatureGas, signatureGasPerIntent: signatureGas / messages.length,
+    calldataBytesPerIntent: settlement.calldataBytes / messages.length };
+}
+
 async function run(workload, asset, path, sender, relayer) {
   const { recipients, payments, payouts, tree, prefund } = workload;
   const { addresses, receipts } = await deploy(asset, path, sender);
@@ -147,15 +210,35 @@ async function run(workload, asset, path, sender, relayer) {
         : await send(sender, token, { data: callData('transfer', to, 1), stage: 'prefund' }));
     }
   }
+  if (workload.wallets) {
+    for (const [index, wallet] of workload.wallets.entries()) {
+      await rpc('anvil_setBalance', wallet.address, quantity(10n ** 18n));
+      if (asset === 'token') {
+        receipts.push(await send(sender, token, {
+          data: callData('transfer', wallet.address, payments[index].amount), stage: 'prefund',
+        }));
+      }
+    }
+  }
   const initial = await Promise.all(recipients.map(balance));
   assert(initial.every(value => value === BigInt(prefund)), 'Unexpected starting recipient balance');
   const firstBlock = Number(BigInt(await rpc('eth_blockNumber')));
 
-  if (path === 'P0') {
-    for (const { to, amount } of payments) {
-      receipts.push(asset === 'native'
-        ? await send(sender, to, { value: amount })
-        : await send(sender, token, { data: callData('transfer', to, amount) }));
+  let protocolMetrics;
+  if (path === 'P5') {
+    protocolMetrics = await p5(workload, asset, addresses, receipts, relayer);
+  } else if (path === 'P0') {
+    for (const [index, { to, amount }] of payments.entries()) {
+      const wallet = workload.wallets?.[index];
+      const payer = wallet?.address ?? sender;
+      if (wallet) await rpc('anvil_impersonateAccount', payer);
+      try {
+        receipts.push(asset === 'native'
+          ? await send(payer, to, { value: amount })
+          : await send(payer, token, { data: callData('transfer', to, amount) }));
+      } finally {
+        if (wallet) await rpc('anvil_stopImpersonatingAccount', payer);
+      }
     }
   } else if (path === 'P2') {
     const settlement = addresses.ClaimSettlement;
@@ -181,13 +264,15 @@ async function run(workload, asset, path, sender, relayer) {
   const expected = payouts.map(({ amount }) => amount + BigInt(prefund));
   assert.deepEqual(final, expected, `${workload.id}/${asset}/${path}: recipient balances`);
   const deployment = sum(receipts.filter(row => row.stage === 'deployment'));
-  const totals = sum(receipts.filter(row => !['deployment', 'prefund'].includes(row.stage)));
+  const totals = sum(receipts.filter(row => !['deployment', 'prefund', 'delegation'].includes(row.stage)));
   return {
-    path, ...totals, deployment, finalBalances: final.map(String),
+    path, ...totals, deployment, ...protocolMetrics,
+    delegation: sum(receipts.filter(row => row.stage === 'delegation')),
+    gasPerPayment: totals.gas / payments.length, finalBalances: final.map(String),
     feePerPaymentWei: (BigInt(totals.feeWei) / BigInt(payments.length)).toString(),
     deploymentGasPerPayment: deployment.gas / payments.length,
     deploymentFeePerPaymentWei: (BigInt(deployment.feeWei) / BigInt(payments.length)).toString(),
-    blocksToSpendable: receipts.at(-1).block - firstBlock,
+    blocksToSpendable: receipts.at(-1).block - (receipts.find(row => row.stage === 'delegation')?.block ?? firstBlock),
     receipts,
   };
 }
@@ -207,6 +292,10 @@ function markdown(groups) {
       const { path, gas, feeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
       lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
     }
+    const protocol = paths.find(result => result.path === 'P5');
+    if (protocol) {
+      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER call gas per intent: ${protocol.signatureGasPerIntent}. Calldata bytes per intent: ${protocol.calldataBytesPerIntent}. Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei.`);
+    }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
     for (const { path, deployment, deploymentGasPerPayment, deploymentFeePerPaymentWei } of paths) {
@@ -222,7 +311,7 @@ async function main() {
   const [sender, relayer] = await rpc('eth_accounts');
   assert.equal(sender?.toLowerCase(), '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', 'Unexpected benchmark mnemonic');
   const groups = [];
-  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0]]) {
+  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0], ['W5', 10, 0]]) {
     const recipients = Array.from({ length: count }, (_, i) => '0x' + (0x10000 + i).toString(16).padStart(40, '0'));
     const payouts = recipients.map(to => ({ to, amount: 0n }));
     const payments = Array.from({ length: 100 }, (_, index) => {
@@ -231,10 +320,14 @@ async function main() {
       payout.amount += amount;
       return { to: payout.to, amount };
     });
-    const workload = { id, prefund, recipients, payments, payouts, tree: await merkle(payments) };
+    const wallets = id === 'W5' ? payments.map((_, index) => privateKeyToAccount('0x' + word(0x100000 + index))) : null;
+    const workload = { id, prefund, recipients, payments, payouts, wallets,
+      tree: id === 'W5' ? null : await merkle(payments) };
     for (const asset of ['native', 'token']) {
       const paths = [];
-      for (const path of asset === 'native' ? ['P0', 'P1', 'P1-net', 'P2'] : ['P0', 'P1', 'P1-net']) {
+      const scenarios = id === 'W5' ? ['P0', 'P5'] : ['P0', 'P1', 'P1-net', 'P5'];
+      if (asset === 'native' && id !== 'W5') scenarios.push('P2');
+      for (const path of scenarios) {
         const snapshot = await rpc('evm_snapshot');
         try {
           const result = await run(workload, asset, path, sender, relayer);

@@ -4,7 +4,7 @@ Sinister Rabbit is an alternative internet platform with Ethereum and EVM settle
 
 ## Receipt-based payout benchmarks
 
-Use Foundry v1.3.1 and Node.js v22.14.0. Install the pinned Solidity test dependency and run the unit tests:
+Use Foundry v1.3.1 and Node.js v20.19.4. Install the pinned Solidity test dependency and run the unit tests:
 
 ```sh
 forge install foundry-rs/forge-std@v1.9.7 --no-git
@@ -13,6 +13,8 @@ forge build
 forge test -vv
 node --test scripts/validate-workload.mjs
 ```
+
+Run `npm --prefix node ci` to install the pinned benchmark dependencies.
 
 Start a dedicated local Anvil node, then run the benchmark in another terminal:
 

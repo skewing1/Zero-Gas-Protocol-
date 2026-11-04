@@ -21,7 +21,7 @@ jobs:
           version: v1.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '22.14.0'
+          node-version: '20.19.4'
       - name: Install Solidity test dependency
         run: |
           forge install foundry-rs/forge-std@v1.9.7 --no-git
@@ -40,6 +40,8 @@ jobs:
         run: node --test scripts/validate-workload.mjs
       - name: Test signed service discovery
         run: node --test network/records.test.mjs
+      - name: Install relayer and benchmark dependencies
+        run: npm --prefix node ci
       - name: Run receipt benchmarks twice
         run: |
           anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
