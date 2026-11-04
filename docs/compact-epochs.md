@@ -1,0 +1,37 @@
+# Experimental compact settlement windows
+
+Status: research branch; local measurements only. This is a payment aggregation experiment, not a replacement for the service-bound ProtocolAccount intent format or a universal savings claim.
+
+Each payer signs one EIP-712 Epoch authorizing a complete list of payments during a settlement window. Funds remain in the payer's delegated EOA. Anyone can submit the epoch. The account checks the signature, chain/account domain, deadline, nonce and fee cap, computes totals from the complete public calldata, and transfers directly to each recipient. The settler never holds funds. Cancellation and reentrancy protection share the existing account's namespaced nonce lanes and transient lock.
+
+Each payment occupies nine bytes: a one-byte recipient-table index and an eight-byte big-endian positive amount. The table contains at most 256 recipients. Larger amounts or recipient sets must be split into separately authorized epochs; the SDK rejects them without truncation. The recipient table and every payment byte are signed. No off-chain party supplies unchecked totals.
+
+## Meaning of the comparison
+
+The receipt benchmark compares actual separate EOA transactions with a single settlement window. Both produce identical final recipient wallet balances. The comparison deliberately exposes two changes: payments become spendable together at window settlement, and consolidated transfers produce fewer transfer events. Applications that require immediate spendability after every payment cannot substitute this path unchanged.
+
+One signature authorizes an entire window. Independently signed per-payment intents cannot be silently converted into an epoch. A payer must approve the window. Service IDs and manifest hashes are not part of this experimental payment encoding; PR2 service-access proofs do not yet accept these receipts. No anchoring costs, identity lifecycle costs or off-chain operating costs are claimed as measured here. This is not the full-platform decision benchmark.
+
+Deployment and delegation are reported separately and included in the cold-start total. Token deployment and initial token funding are shared fixtures, included on both sides in the all-in column. Native initial funding uses equal Anvil fixtures. Zero relayer reimbursement is used, but every relayer transaction's network gas and fee remain counted. A relayer still needs a viable reimbursement policy; sponsor-paid gas is not erased.
+
+Fee-on-transfer and rebasing tokens are unsupported for equal-outcome claims. The benchmark uses the standard BenchToken. Current delegation revocation prevents execution; reattaching the implementation may revive an unused signature. Cancel its nonce lane for permanent invalidation.
+
+## Reproduction
+
+Use the repository's pinned Foundry 1.3.1, solc 0.8.30, OpenZeppelin 5.0.2 and Node 20.19.4 dependencies.
+
+```sh
+npm --prefix node ci
+npm --prefix node run build
+forge test
+node --test node/test/epochs.test.mjs
+anvil --hardfork prague --chain-id 31337
+# In another terminal from the repository root:
+node scripts/bench-epochs.mjs
+```
+
+The harness accepts only local chain 31337 and uses public development keys. It records every transaction receipt in `bench/epoch-results.json`, including gas, effective fees and calldata. It asserts final balances after both paths. Never use these keys on a public network.
+
+## Decision gate
+
+The target remains 90–99% lower total network cost for equivalent useful outcomes. Passing a concentrated workload does not pass that gate for independent payers or fresh recipients. Report each workload separately. Existing EVM costs are unchanged by this protocol. Universal gains require reducing how much execution the base chain performs, which introduces additional settlement, proof, data-availability and exit requirements. Those must be implemented and measured before making a broader claim.

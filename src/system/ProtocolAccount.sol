@@ -70,7 +70,7 @@ contract ProtocolAccount {
         return _signedByAccount(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
-    function _enter() private {
+    function _enter() internal {
         bytes32 lock = EXECUTION_LOCK;
         bool executing;
         assembly ("memory-safe") { executing := tload(lock) }
@@ -78,17 +78,17 @@ contract ProtocolAccount {
         assembly ("memory-safe") { tstore(lock, 1) }
     }
 
-    function _exit() private {
+    function _exit() internal {
         bytes32 lock = EXECUTION_LOCK;
         assembly ("memory-safe") { tstore(lock, 0) }
     }
 
-    function _signedByAccount(bytes32 digest, bytes calldata signature) private view returns (bool) {
+    function _signedByAccount(bytes32 digest, bytes calldata signature) internal view returns (bool) {
         (address signer, ECDSA.RecoverError error,) = ECDSA.tryRecover(digest, signature);
         return error == ECDSA.RecoverError.NoError && signer == address(this);
     }
 
-    function _transfer(address asset, address recipient, uint256 amount) private {
+    function _transfer(address asset, address recipient, uint256 amount) internal {
         if (amount == 0) return;
         if (asset == address(0)) {
             (bool paid,) = payable(recipient).call{value: amount}("");
@@ -98,7 +98,7 @@ contract ProtocolAccount {
         }
     }
 
-    function _storage() private pure returns (AccountStorage storage state) {
+    function _storage() internal pure returns (AccountStorage storage state) {
         bytes32 slot = keccak256(abi.encode(uint256(keccak256("sinister-rabbit.ProtocolAccount")) - 1))
             & ~bytes32(uint256(0xff));
         assembly ("memory-safe") {
