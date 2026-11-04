@@ -1,4 +1,4 @@
-import { createPrivateKey } from 'node:crypto';
+import { createHash, createPrivateKey } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createIdentity, publishService, ServiceDirectory } from './records.mjs';
 
@@ -29,6 +29,14 @@ function main([command, ...args]) {
     return;
   }
 
+  if (command === 'digest' && args.length === 1) {
+    const directory = new ServiceDirectory();
+    if (!directory.ingest(readJson(args[0]))) throw new Error('Invalid signed listing');
+    const [record] = directory.search();
+    console.log('0x' + createHash('sha256').update(JSON.stringify(record)).digest('hex'));
+    return;
+  }
+
   if (command === 'discover' && args.length >= 2) {
     const [query, ...paths] = args;
     const directory = new ServiceDirectory();
@@ -41,7 +49,7 @@ function main([command, ...args]) {
     return;
   }
 
-  throw new Error('Usage: identity FILE | publish IDENTITY OUTPUT SERVICE REVISION TITLE DESCRIPTION | discover QUERY RECORD...');
+  throw new Error('Usage: identity FILE | publish IDENTITY OUTPUT SERVICE REVISION TITLE DESCRIPTION | digest RECORD | discover QUERY RECORD...');
 }
 
 try {
