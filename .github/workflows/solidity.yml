@@ -21,9 +21,11 @@ jobs:
           version: v1.3.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: '22.14.0'
+          node-version: '20.19.4'
       - name: Install Solidity test dependency
-        run: forge install foundry-rs/forge-std@v1.9.7 --no-git
+        run: |
+          forge install foundry-rs/forge-std@v1.9.7 --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-git
       - name: Compile Solidity
         run: forge build
       - name: Run EVM tests and capture gas measurements
@@ -38,14 +40,18 @@ jobs:
         run: node --test scripts/validate-workload.mjs
       - name: Test signed service discovery
         run: node --test network/records.test.mjs
+      - name: Install relayer and benchmark dependencies
+        run: npm --prefix node ci
       - name: Run receipt benchmarks twice
         run: |
-          anvil --chain-id 31337 --hardfork cancun --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
+          anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
           trap 'kill "$!"' EXIT
           for attempt in {1..50}; do
             if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
             sleep 0.2
           done
+          npm --prefix node run build
+          node --test node/test/relayer.test.mjs
           node scripts/bench.mjs
           cp bench/results.json /tmp/receipt-results-first.json
           node scripts/bench.mjs

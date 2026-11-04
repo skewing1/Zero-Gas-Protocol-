@@ -1,7 +1,24 @@
+import { createWalletClient, encodeFunctionData, http, parseAbi } from '../node/node_modules/viem/_esm/index.js';
+import { mnemonicToAccount, privateKeyToAccount } from '../node/node_modules/viem/_esm/accounts/index.js';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
+const mnemonic = 'test test test test test test test test test test test junk';
+const payerWallet = mnemonicToAccount(mnemonic);
+const relayerWallet = mnemonicToAccount(mnemonic, { addressIndex: 1 });
+const benchmarkChain = { id: 31337, name: 'Anvil', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } } };
+const fields = [
+  ['payee', 'address'], ['asset', 'address'], ['amount', 'uint256'], ['feeCap', 'uint256'],
+  ['serviceId', 'bytes32'], ['manifestHash', 'bytes32'], ['nonceKey', 'uint192'], ['nonceSeq', 'uint64'],
+  ['deadline', 'uint64'],
+];
+const intentTypes = { Intent: fields.map(([name, type]) => ({ name, type })) };
+const settlerAbi = parseAbi([
+  `struct Intent { ${fields.map(([name, type]) => `${type} ${name};`).join(' ')} }`,
+  'function settleBatch(address[] accounts, Intent[] intents, bytes[] signatures, uint256[] fees)',
+]);
 const rpcUrl = 'http://127.0.0.1:8545';
 const gasPrice = 2_000_000_000n;
 const gasLimit = '0x989680';
@@ -81,14 +98,15 @@ async function deploy(asset, path, sender) {
   if (asset === 'token') names.push('BenchToken');
   if (path === 'P1' || path === 'P1-net') names.push('BatchPayout');
   if (path === 'P2') names.push('ClaimSettlement');
+  if (path === 'P5') names.push('ProtocolAccount', 'Settler');
   if (!names.length) return { addresses: {}, receipts: [] };
 
   execFileSync('forge', [
-    'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool)',
+    'script', 'script/Bench.s.sol:Bench', '--sig', 'run(bool,bool,bool,bool)',
     String(names.includes('BenchToken')), String(names.includes('BatchPayout')),
-    String(names.includes('ClaimSettlement')), '--rpc-url', rpcUrl, '--broadcast',
+    String(names.includes('ClaimSettlement')), String(path === 'P5'), '--rpc-url', rpcUrl, '--broadcast', '--slow',
     '--unlocked', '--sender', sender, '--legacy', '--with-gas-price', gasPrice.toString(),
-  ], { stdio: ['ignore', 'pipe', 'inherit'] });
+  ], { stdio: ['ignore', 'pipe', 'inherit'], timeout: 60_000 });
   const { transactions } = JSON.parse(readFileSync('broadcast/Bench.s.sol/31337/run-latest.json', 'utf8'));
   const receipts = await Promise.all(transactions.map(tx => measure(tx.hash, 'deployment')));
   assert.deepEqual(transactions.map(tx => tx.contractName), names);
@@ -131,6 +149,64 @@ function sum(rows) {
   };
 }
 
+async function p5(workload, asset, addresses, receipts, relayer) {
+  const wallets = workload.wallets ?? [payerWallet];
+  const client = createWalletClient({ account: relayerWallet, chain: benchmarkChain, transport: http(rpcUrl) });
+  const authorizationList = await Promise.all(wallets.map(async wallet => wallet.signAuthorization({
+    contractAddress: addresses.ProtocolAccount, chainId: benchmarkChain.id,
+    nonce: Number(BigInt(await rpc('eth_getTransactionCount', wallet.address, 'latest'))),
+  })));
+  const delegationHash = await client.sendTransaction({
+    to: relayerWallet.address, authorizationList, gas: BigInt(gasLimit),
+    maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
+  });
+  receipts.push(await measure(delegationHash, 'delegation'));
+  for (const wallet of wallets) {
+    assert.equal((await rpc('eth_getCode', wallet.address, 'latest')).toLowerCase(),
+      '0xef0100' + addresses.ProtocolAccount.slice(2).toLowerCase(), 'Authorization did not attach delegation');
+  }
+
+  const messages = workload.payments.map(({ to, amount }, index) => ({
+    payee: to, asset: asset === 'native' ? '0x' + '0'.repeat(40) : addresses.BenchToken,
+    amount, feeCap: 0n, serviceId: '0x' + word(1), manifestHash: '0x' + word(2),
+    nonceKey: 0n, nonceSeq: BigInt(workload.wallets ? 0 : index), deadline: (1n << 64n) - 1n,
+  }));
+  const payers = messages.map((_, index) => wallets[workload.wallets ? index : 0]);
+  const signatures = await Promise.all(messages.map((message, index) => payers[index].signTypedData({
+    domain: { name: 'ProtocolAccount', version: '1', chainId: benchmarkChain.id,
+      verifyingContract: payers[index].address },
+    types: intentTypes, primaryType: 'Intent', message,
+  })));
+  const data = encodeFunctionData({
+    abi: settlerAbi, functionName: 'settleBatch',
+    args: [payers.map(wallet => wallet.address), messages, signatures, messages.map(() => 0n)],
+  });
+  const settlement = await send(relayer, addresses.Settler, { data });
+  receipts.push(settlement);
+  const receipt = await rpc('eth_getTransactionReceipt', settlement.hash);
+  const eventTopic = await rpc('web3_sha3', '0x' + Buffer.from(
+    'IntentExecuted(bytes32,address,address,uint256,uint256,address,bytes32,bytes32)'
+  ).toString('hex'));
+  assert.equal(receipt.logs.filter(log => log.topics[0] === eventTopic).length, messages.length,
+    `Unexpected settlement logs: ${JSON.stringify(receipt.logs.slice(0, 2))}`);
+  const trace = await rpc('debug_traceTransaction', settlement.hash, { tracer: 'callTracer' });
+  let signatureCalls = 0;
+  let signatureGas = 0;
+  function collect(frame) {
+    if (frame.to && BigInt(frame.to) === 1n) {
+      signatureGas += Number(BigInt(frame.gasUsed));
+      ++signatureCalls;
+    }
+    for (const call of frame.calls ?? []) collect(call);
+  }
+  collect(trace);
+  assert.equal(signatureCalls, messages.length, 'Expected one ECRECOVER call per intent');
+  return { signatureGas, signatureGasPerIntent: signatureGas / messages.length,
+    signatureSharePercent: (100 * signatureGas / settlement.gasUsed).toFixed(2),
+    calldataBytesPerIntent: settlement.calldataBytes / messages.length,
+    calldataByteGasPerIntent: (settlement.zeroBytes * 4 + settlement.nonzeroBytes * 16) / messages.length };
+}
+
 async function run(workload, asset, path, sender, relayer) {
   const { recipients, payments, payouts, tree, prefund } = workload;
   const { addresses, receipts } = await deploy(asset, path, sender);
@@ -147,15 +223,35 @@ async function run(workload, asset, path, sender, relayer) {
         : await send(sender, token, { data: callData('transfer', to, 1), stage: 'prefund' }));
     }
   }
+  if (workload.wallets) {
+    for (const [index, wallet] of workload.wallets.entries()) {
+      await rpc('anvil_setBalance', wallet.address, quantity(10n ** 18n));
+      if (asset === 'token') {
+        receipts.push(await send(sender, token, {
+          data: callData('transfer', wallet.address, payments[index].amount), stage: 'prefund',
+        }));
+      }
+    }
+  }
   const initial = await Promise.all(recipients.map(balance));
   assert(initial.every(value => value === BigInt(prefund)), 'Unexpected starting recipient balance');
   const firstBlock = Number(BigInt(await rpc('eth_blockNumber')));
 
-  if (path === 'P0') {
-    for (const { to, amount } of payments) {
-      receipts.push(asset === 'native'
-        ? await send(sender, to, { value: amount })
-        : await send(sender, token, { data: callData('transfer', to, amount) }));
+  let protocolMetrics;
+  if (path === 'P5') {
+    protocolMetrics = await p5(workload, asset, addresses, receipts, relayer);
+  } else if (path === 'P0') {
+    for (const [index, { to, amount }] of payments.entries()) {
+      const wallet = workload.wallets?.[index];
+      const payer = wallet?.address ?? sender;
+      if (wallet) await rpc('anvil_impersonateAccount', payer);
+      try {
+        receipts.push(asset === 'native'
+          ? await send(payer, to, { value: amount })
+          : await send(payer, token, { data: callData('transfer', to, amount) }));
+      } finally {
+        if (wallet) await rpc('anvil_stopImpersonatingAccount', payer);
+      }
     }
   } else if (path === 'P2') {
     const settlement = addresses.ClaimSettlement;
@@ -181,13 +277,16 @@ async function run(workload, asset, path, sender, relayer) {
   const expected = payouts.map(({ amount }) => amount + BigInt(prefund));
   assert.deepEqual(final, expected, `${workload.id}/${asset}/${path}: recipient balances`);
   const deployment = sum(receipts.filter(row => row.stage === 'deployment'));
-  const totals = sum(receipts.filter(row => !['deployment', 'prefund'].includes(row.stage)));
+  const totals = sum(receipts.filter(row => !['deployment', 'prefund', 'delegation'].includes(row.stage)));
   return {
-    path, ...totals, deployment, finalBalances: final.map(String),
+    path, ...totals, deployment, ...protocolMetrics,
+    delegation: sum(receipts.filter(row => row.stage === 'delegation')),
+    prefunding: sum(receipts.filter(row => row.stage === 'prefund')),
+    gasPerPayment: totals.gas / payments.length, finalBalances: final.map(String),
     feePerPaymentWei: (BigInt(totals.feeWei) / BigInt(payments.length)).toString(),
     deploymentGasPerPayment: deployment.gas / payments.length,
     deploymentFeePerPaymentWei: (BigInt(deployment.feeWei) / BigInt(payments.length)).toString(),
-    blocksToSpendable: receipts.at(-1).block - firstBlock,
+    blocksToSpendable: receipts.at(-1).block - (receipts.find(row => row.stage === 'delegation')?.block ?? firstBlock),
     receipts,
   };
 }
@@ -197,9 +296,10 @@ function markdown(groups) {
     '# Receipt-based payout benchmarks', '',
     'Totals include approval where required. Deployment is separate. Prefunding is excluded.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
-    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
+    'P5 includes signed intent verification. Excluded costs include ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
   ];
   for (const { workload, asset, paths } of groups) {
+    if (workload.startsWith('S')) continue;
     lines.push('', `## ${workload} · ${asset}`, '',
       '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
       '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -207,11 +307,27 @@ function markdown(groups) {
       const { path, gas, feeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
       lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
     }
+    const protocol = paths.find(result => result.path === 'P5');
+    if (protocol) {
+      lines.push('', `P5 gas per payment: ${protocol.gasPerPayment}. ECRECOVER precompile gas per intent: ${protocol.signatureGasPerIntent} (${protocol.signatureSharePercent}% of settlement gas). Calldata per intent: ${protocol.calldataBytesPerIntent} bytes (${protocol.calldataByteGasPerIntent} gas at 4/16 gas per byte). Delegation gas: ${protocol.delegation.gas} total (${protocol.delegation.gas / 100} per payment). Delegation fee: ${protocol.delegation.feeWei} wei. Prefunding transaction gas: ${protocol.prefunding.gas}.`);
+    }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
     for (const { path, deployment, deploymentGasPerPayment, deploymentFeePerPaymentWei } of paths) {
       lines.push(`| ${path} | ${deployment.gas} | ${deployment.feeWei} | ${deploymentGasPerPayment} | ${deploymentFeePerPaymentWei} |`);
     }
+  }
+  lines.push('', '## Single-payer break-even sweep', '',
+    'Each scenario has 100 payment obligations and fresh recipients. Deployment and delegation are reported separately from settlement.', '',
+    '| Payments per payee | ETH P0 gas | ETH P5 gas | Token P0 gas | Token P5 gas |',
+    '| ---: | ---: | ---: | ---: | ---: |');
+  for (const repeats of [1, 2, 4, 5, 10, 20, 25, 50, 100]) {
+    const workload = ({ 1: 'W1', 4: 'W3', 10: 'W4' })[repeats] ?? `S${repeats}`;
+    const values = ['native', 'token'].flatMap(asset => {
+      const { paths } = groups.find(group => group.workload === workload && group.asset === asset);
+      return ['P0', 'P5'].map(path => paths.find(result => result.path === path).gas);
+    });
+    lines.push(`| ${repeats} | ${values.join(' | ')} |`);
   }
   return lines.join('\n') + '\n';
 }
@@ -222,7 +338,8 @@ async function main() {
   const [sender, relayer] = await rpc('eth_accounts');
   assert.equal(sender?.toLowerCase(), '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', 'Unexpected benchmark mnemonic');
   const groups = [];
-  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0]]) {
+  for (const [id, count, prefund] of [['W1', 100, 0], ['W2', 100, 1], ['W3', 25, 0], ['W4', 10, 0], ['W5', 10, 0],
+    ...[2, 5, 20, 25, 50, 100].map(repeats => [`S${repeats}`, 100 / repeats, 0])]) {
     const recipients = Array.from({ length: count }, (_, i) => '0x' + (0x10000 + i).toString(16).padStart(40, '0'));
     const payouts = recipients.map(to => ({ to, amount: 0n }));
     const payments = Array.from({ length: 100 }, (_, index) => {
@@ -231,10 +348,14 @@ async function main() {
       payout.amount += amount;
       return { to: payout.to, amount };
     });
-    const workload = { id, prefund, recipients, payments, payouts, tree: await merkle(payments) };
+    const wallets = id === 'W5' ? payments.map((_, index) => privateKeyToAccount('0x' + word(0x100000 + index))) : null;
+    const workload = { id, prefund, recipients, payments, payouts, wallets,
+      tree: id === 'W5' || id.startsWith('S') ? null : await merkle(payments) };
     for (const asset of ['native', 'token']) {
       const paths = [];
-      for (const path of asset === 'native' ? ['P0', 'P1', 'P1-net', 'P2'] : ['P0', 'P1', 'P1-net']) {
+      const scenarios = id === 'W5' || id.startsWith('S') ? ['P0', 'P5'] : ['P0', 'P1', 'P1-net', 'P5'];
+      if (asset === 'native' && workload.tree) scenarios.push('P2');
+      for (const path of scenarios) {
         const snapshot = await rpc('evm_snapshot');
         try {
           const result = await run(workload, asset, path, sender, relayer);
