@@ -1,6 +1,24 @@
 # Protocol architecture
 
-Sinister Rabbit is a shared execution and settlement network for EVM-compatible chains. Wallets, agents, payment facilitators, and applications integrate through the same intent format. Each chain still charges for transactions. The protocol aims to lower total cost through aggregation and make native gas optional for users through sponsorship or reimbursement in a supported asset.
+## The user network
+
+Sinister Rabbit is an alternative internet platform where individuals participate directly. Users create identities, publish and discover content and services, communicate, and transact through a shared network. Ethereum is the initial settlement and verification anchor. Other EVM networks connect through chain adapters as their security, finality, and fee policies are qualified.
+
+The platform has its own user and service layer. EVM contracts support ownership and settlement where those guarantees are needed. A page view, search, or message should not require an EVM transaction. The first prototype should use signed, portable user records and off-chain delivery, with optional on-chain commitments where independent verification matters. A commitment proves integrity for available data. Storage and retrieval are separate responsibilities.
+
+| Network component | Initial responsibility |
+| --- | --- |
+| Client and identity | Provide one user-facing entry point. Sign portable identity and service actions, with explicit key recovery and revocation rules. |
+| Content and discovery | Publish, retrieve, and index signed records. Keep private communications off public chains. Define how users export data and how records remain available if an operator goes offline. |
+| Execution and settlement | Route and settle eligible actions through Ethereum and qualified EVM networks. Batch where useful and record who pays each fee. |
+
+### First integrated prototype
+
+Build a thin client where two users can create identities, publish and discover a service, and complete one paid interaction. Publish and discover using signed records without submitting chain transactions. Verify the payment through the Ethereum settlement path. Then repeat the flow through a second EVM adapter and report the differences in fees, time to finality, and trust assumptions.
+
+Measure gas per completed user workflow, including commitments, settlement, claims, and recovery transactions when required. Report user-paid fees separately from total network cost and keep off-chain operating costs visible. Compare workflows with equivalent ownership, payout, and recovery guarantees. The transfer, Merkle claim, and netting benchmarks measure settlement components within this larger system.
+
+## Execution and settlement subsystem
 
 ## System boundaries
 
