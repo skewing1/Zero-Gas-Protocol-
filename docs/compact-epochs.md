@@ -35,3 +35,7 @@ The harness accepts only local chain 31337 and uses public development keys. It 
 ## Decision gate
 
 The target remains 90–99% lower total network cost for equivalent useful outcomes. Passing a concentrated workload does not pass that gate for independent payers or fresh recipients. Report each workload separately. Existing EVM costs are unchanged by this protocol. Universal gains require reducing how much execution the base chain performs, which introduces additional settlement, proof, data-availability and exit requirements. Those must be implemented and measured before making a broader claim.
+
+Wallet signing displays commitment hashes. A signing client must display the complete recipient table, payments, totals, fee cap, deadline and nonce lane before requesting the signature, and recompute both hashes locally. Blind approval of hashes supplied by an operator is unsafe. The current SDK exposes that payment data and computed totals; a production wallet review flow and external audit are still required.
+
+`--scenario=<name>` selects a diagnostic workload. Use `--output=<directory>` to keep diagnostic results separate. The target decision command requires all five workloads for both assets and rejects incomplete reports. Signature tracing measures the ECRECOVER precompile calls; it does not treat those calls as the entire signature-handling overhead. Receipt gas already includes hashing, decoding, transfers, events and transaction costs.

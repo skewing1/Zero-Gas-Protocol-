@@ -14,3 +14,11 @@ Next decisions:
 5. Keep existing-chain adapters for interoperability. Separate their overhead from the shared execution layer's cost.
 
 Identity, discovery, messaging, and proof anchoring are product capabilities. They do not by themselves demonstrate a lower cost for moving funds. Gate expansion on measured cost and a specified exit mechanism.
+
+## Compact-epoch experiment
+
+`EpochAccount` implements shared payer authorization with complete compact payment calldata and on-chain aggregation. `bench/epoch-decision.md` evaluates all fresh-recipient, independent-payer and repeated-payment controls. Cold-start savings include deployment and delegation; the shared token setup is counted on both sides. Receipt fees include the relayer's gas even with zero reimbursement.
+
+The next architectural gate remains the fresh-recipient and independent-payer workloads. Concentrating more obligations into a window improves amortization but also increases waiting and cannot establish an immediate-payment platform gain. Service-bound receipts, proof costs and the full-network decision benchmark must be included before claiming the overall goal.
+
+The compact experiment's call traces measure 300,000 gas in ECRECOVER alone for 100 independent payer epochs. Their direct native baseline is 2,100,000 gas, giving a 210,000-gas budget at 90% savings. This signature-only cost already exceeds that budget, before nonce storage, transfers, calldata or deployment. With one ECDSA verification per independent payer, further packing cannot close this gap. This lower bound applies to the measured ECDSA-based design, not every possible future settlement model.

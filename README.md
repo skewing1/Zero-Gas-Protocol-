@@ -32,3 +32,9 @@ Totals include token approval when required. Deployment fees are reported separa
 The Foundry unit tests also print in-transaction execution gas for diagnostics. Use the receipt report for transaction cost comparisons.
 
 P5 measures one Settler batch of EIP-7702 signed intents delivering funds directly to the wallet. W5 uses 100 distinct payer EOAs paying 10 recipients. Initial payer funding, delegation, and contract deployment are reported separately from settlement. The break-even sweep holds payer count and payment count fixed and varies payment concentration. Signature share attributes the traced ECRECOVER precompile only, and reports calldata separately. The P5 receipt includes all execution and transaction calldata costs. See [system layer](docs/system-layer.md) for the relayer and trust model.
+
+## Experimental compact payment windows
+
+The research path in [compact epochs](docs/compact-epochs.md) authorizes many payments with one payer signature and computes consolidated payouts on-chain. Run `npm --prefix node run build`, then `node scripts/bench-epochs.mjs` against a dedicated Prague Anvil. Run `node scripts/epoch-decision.mjs` to evaluate the complete report against the 90% and 99% thresholds.
+
+Read [measured results](bench/epoch-results.md) and the [target decision](bench/epoch-decision.md) together. Large repeated-payment windows and independent single payments are separate workloads. This path changes intermediate spendability and does not yet provide service-bound or anchored payment proofs. Its savings do not establish the full-platform target.
