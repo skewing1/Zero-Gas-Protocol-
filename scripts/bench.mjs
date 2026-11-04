@@ -161,6 +161,10 @@ async function p5(workload, asset, addresses, receipts, relayer) {
     maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
   });
   receipts.push(await measure(delegationHash, 'delegation'));
+  for (const wallet of wallets) {
+    assert.equal((await rpc('eth_getCode', wallet.address, 'latest')).toLowerCase(),
+      '0xef0100' + addresses.ProtocolAccount.slice(2).toLowerCase(), 'Authorization did not attach delegation');
+  }
 
   const messages = workload.payments.map(({ to, amount }, index) => ({
     payee: to, asset: asset === 'native' ? '0x' + '0'.repeat(40) : addresses.BenchToken,
@@ -179,17 +183,23 @@ async function p5(workload, asset, addresses, receipts, relayer) {
   });
   const settlement = await send(relayer, addresses.Settler, { data });
   receipts.push(settlement);
+  const receipt = await rpc('eth_getTransactionReceipt', settlement.hash);
+  const eventTopic = await rpc('web3_sha3', '0x' + Buffer.from(
+    'IntentExecuted(bytes32,address,address,uint256,uint256,address,bytes32,bytes32)'
+  ).toString('hex'));
+  assert.equal(receipt.logs.filter(log => log.topics[0] === eventTopic).length, messages.length,
+    `Unexpected settlement logs: ${JSON.stringify(receipt.logs.slice(0, 2))}`);
   const trace = await rpc('debug_traceTransaction', settlement.hash, { disableMemory: true, disableStorage: true });
   let signatureCalls = 0;
   let signatureGas = 0;
   for (const [index, entry] of trace.structLogs.entries()) {
-    if (entry.op !== 'STATICCALL' || BigInt('0x' + entry.stack.at(-2).replace(/^0x/, '')) !== 1n) continue;
+    if (!['STATICCALL', 'CALL'].includes(entry.op) || BigInt('0x' + entry.stack.at(-2).replace(/^0x/, '')) !== 1n) continue;
     const resumed = trace.structLogs[index + 1];
     assert.equal(resumed.depth, entry.depth, 'Unexpected ecrecover trace shape');
     signatureGas += Number(entry.gas) - Number(resumed.gas);
     ++signatureCalls;
   }
-  assert.equal(signatureCalls, messages.length, 'Expected one signature check per intent');
+  assert.equal(signatureCalls, messages.length, `Expected one signature check per intent (trace calls: ${JSON.stringify(trace.structLogs.filter(entry => ['STATICCALL', 'CALL'].includes(entry.op)).slice(0, 4).map(entry => [entry.op, entry.stack?.slice(-3)]))})`);
   return { signatureGas, signatureGasPerIntent: signatureGas / messages.length,
     calldataBytesPerIntent: settlement.calldataBytes / messages.length };
 }
