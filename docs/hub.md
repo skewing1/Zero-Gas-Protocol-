@@ -187,3 +187,24 @@ Use `bench/merchant-screen-results.md` as a stop condition for this design.
 A successor needs a different funding or execution model. Count its full
 lifecycle cost and compare against direct payment on the same chain and
 against Ethereum separately.
+
+### Base fee comparison
+
+Run `node scripts/hub/rollup-fees.mjs` after installing the locked Node dependencies.
+The script uses read-only RPC on Ethereum and Base. Set `ETHEREUM_BLOCK=26343637`
+and `BASE_BLOCK=53516138` to reproduce the committed sample at finalized blocks.
+The report and raw public transaction receipts are in `bench/rollup-fees-results.*`.
+
+The Base portal address comes from the chain 8453 entry in the
+[Superchain Registry at commit 5b055be](https://github.com/ethereum-optimism/superchain-registry/blob/5b055be4d294ce43814a44c8839d89b2436dc8aa/superchain/extra/addresses/addresses.json).
+The run checked for portal code on Ethereum and sampled its deposit event.
+The historical Base fee breakdown adds receipt execution and data fees and the
+[operator fee](https://specs.optimism.io/protocol/isthmus/predeploys.html#gaspriceoracle)
+from the GasPriceOracle at each sample block. The checkout estimate uses a
+read-only balance override and the oracle's upper bound for data fees.
+
+The observed fee gap is relevant when shoppers and merchants already hold
+spendable Base balances. A shopper who needs to enter from Ethereum must
+include that expense. Only one native portal entry receipt matched the search
+window, and no completed withdrawal flow was sampled. Use these figures as a
+screen for the payment route, with separate accounting for entry and exit.
