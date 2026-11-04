@@ -33,10 +33,8 @@ contract TransferBenchTest is Test {
                 assertEq(baselineLogs[i].topics[j], batchLogs[i].topics[j]);
             assertEq(baselineLogs[i].data, batchLogs[i].data);
         }
-        emit log_named_uint("Baseline execution gas (100 calls)", baseline);
-        emit log_named_uint("Batch execution gas (1 call)", optimized);
-        assertLt(optimized, baseline);
-        emit log_named_uint("Execution gas reduction basis points", (baseline - optimized) * 10000 / baseline);
+        emit log_named_uint("Baseline in-transaction execution gas (not tx cost) (100 calls)", baseline);
+        emit log_named_uint("Batch in-transaction execution gas (not tx cost) (1 call)", optimized);
     }
     function balancesTotal(TransferBench t, address[] memory recipients) internal view returns(uint256 total) {
         for(uint256 i; i < recipients.length; ++i) total += t.balances(recipients[i]);

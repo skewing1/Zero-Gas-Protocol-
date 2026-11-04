@@ -13,12 +13,15 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf
         with:
           version: v1.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.14.0'
       - name: Install Solidity test dependency
         run: forge install foundry-rs/forge-std@v1.9.7 --no-git
       - name: Compile Solidity
@@ -26,7 +29,7 @@ jobs:
       - name: Run EVM tests and capture gas measurements
         run: forge test -vv --gas-report | tee gas-report.txt
       - name: Upload gas report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: evm-gas-report
           path: gas-report.txt
@@ -35,3 +38,30 @@ jobs:
         run: node --test scripts/validate-workload.mjs
       - name: Test signed service discovery
         run: node --test network/records.test.mjs
+      - name: Run receipt benchmarks twice
+        run: |
+          anvil --chain-id 31337 --hardfork cancun --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
+          trap 'kill "$!"' EXIT
+          for attempt in {1..50}; do
+            if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
+            sleep 0.2
+          done
+          node scripts/bench.mjs
+          cp bench/results.json /tmp/receipt-results-first.json
+          node scripts/bench.mjs
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const gas = path => JSON.parse(readFileSync(path)).map(group =>
+              group.paths.map(run => run.receipts.map(tx => tx.gasUsed)));
+            assert.deepEqual(gas("/tmp/receipt-results-first.json"), gas("bench/results.json"));
+          '
+          cat bench/results.md
+      - name: Upload receipt benchmark reports
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: receipt-benchmarks
+          path: |
+            bench/results.md
+            bench/results.json
+          if-no-files-found: error
