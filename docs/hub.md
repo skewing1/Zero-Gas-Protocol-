@@ -74,13 +74,12 @@ A multi-chain timeout by itself is not a consensus mechanism.
 
 ## Tooling and measurement status
 
-This environment has Foundry binaries from the existing experiment, but `cargo`,
-`cargo-prove` and `docker` were absent from PATH during this check. No SP1 version,
-sp1-contracts version or Helios version has been selected or verified for this
-branch. There is no real Groth16 proof, export proof, hardware measurement,
-point-evaluation integration, four-chain deployment or network price snapshot.
-The mandatory blob/proof gate is therefore NOT PASSED. Do not start Phase 2,
-create rc1, or produce mainnet deployment artifacts on this basis.
+Rust 1.88.0 and SP1 5.2.4 are now installed; the matching SP1 Rust toolchain
+was downloaded and checksum-verified. The signed-transfer kernel passes native
+Rust tests and its SP1 guest builds. See docs/hub-kernel.md for the reproducible
+commands, resource limits, and exact scope. There is still no real Groth16 proof,
+export proof, point-evaluation integration or four-chain payment run.
+The mandatory blob/proof gate is NOT PASSED. No later phase or launch is ready.
 
 ## Corrected exit design
 

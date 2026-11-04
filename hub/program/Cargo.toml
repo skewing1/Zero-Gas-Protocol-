@@ -1,0 +1,7 @@
+[package]
+name = "hub-auth-program"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+sp1-zkvm = "=5.2.4"
+hub-kernel = { path = "../kernel" }

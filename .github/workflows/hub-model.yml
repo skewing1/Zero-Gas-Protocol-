@@ -12,3 +12,14 @@ jobs:
         with:
           node-version: '20.19.4'
       - run: node --test hub/model/escape.test.mjs hub/spec/exit-safety.test.mjs
+  kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - run: cargo +1.88.0 test --locked --manifest-path hub/Cargo.toml -p hub-kernel
+      - run: bash scripts/hub/install-sp1.sh
+      - name: Compile authentication guest (not a proof or savings benchmark)
+        working-directory: hub
+        run: PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program
