@@ -25,7 +25,8 @@ contract ServicePaymentTest is Test {
 
     function testRejectsEmptyPayment() public {
         ServicePayment settlement = new ServicePayment();
+        bytes32 listing = sha256("signed service record");
         vm.expectRevert(ServicePayment.InvalidPayment.selector);
-        settlement.pay(sha256("signed service record"), payable(address(0x10000)));
+        settlement.pay(listing, payable(address(0x10000)));
     }
 }
