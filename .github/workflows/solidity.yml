@@ -71,3 +71,49 @@ jobs:
             bench/results.md
             bench/results.json
           if-no-files-found: error
+
+  compact-epochs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf
+        with:
+          version: v1.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '20.19.4'
+      - name: Dependencies and encoder tests
+        run: |
+          forge install foundry-rs/forge-std@v1.9.7 --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-git
+          npm --prefix node ci
+          npm --prefix node run build
+          node --test node/test/epochs.test.mjs scripts/epoch-decision.test.mjs
+      - name: Compare complete payment windows twice
+        run: |
+          anvil --chain-id 31337 --hardfork prague --prune-history > /tmp/epoch-anvil.log 2>&1 &
+          anvil_pid=$!
+          trap 'kill "$anvil_pid"' EXIT
+          for attempt in {1..50}; do
+            if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
+            sleep 0.2
+          done
+          node scripts/bench-epochs.mjs --reset-between
+          cp bench/epoch-results.json /tmp/first-epochs.json
+          node scripts/bench-epochs.mjs --reset-between
+          node scripts/check-epoch-determinism.mjs /tmp/first-epochs.json bench/epoch-results.json
+          node scripts/epoch-decision.mjs
+          cat bench/epoch-results.md
+          cat bench/epoch-decision.md
+      - name: Upload all epoch receipts and report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compact-epoch-benchmarks
+          path: |
+            bench/epoch-results.md
+            bench/epoch-decision.md
+            bench/epoch-results.json
+          if-no-files-found: error
