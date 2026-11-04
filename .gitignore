@@ -10,3 +10,4 @@
 /hub/target/
 /hub/.tools/
 /bench/native-pilot-results.json
+/bench/native-clearing-results.json

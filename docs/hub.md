@@ -130,3 +130,25 @@ The script starts a local Prague Anvil and writes the gas report to
 account it compares the same window against P0 and P0-net. Twenty deterministic
 local wallets each pay up to three distinct counterparties. The comparison
 checks equivalent wallet principal after all funds leave the pilot.
+
+### Jointly authorized clearing
+
+Run `node scripts/hub/bench-pilot.mjs --clearing` after `forge build`.
+The clearing workload adds 101 participants who each pay 100 distinct
+counterparties. Every participant signs the same EIP-712 window containing
+the hash of the payment list and the ordered entries with owner, nonce and
+net delta. The contract checks all signatures, enforces nonce progression
+and rejects any window whose deltas do not sum to zero. Each participant can
+withdraw directly. Any party can submit a fully signed window.
+
+Clients must verify the full list, check the net amounts and retain the
+list to verify payment details later. The benchmark bundles the list with
+its receipts. This path requires all participants' consent before clearing.
+A participant can withhold a signature or withdraw and leave the proposed
+window underfunded. Participants can then use ordinary settlement or form
+another window. No individual payment validity proof or persistent data
+publication service is included in this experiment.
+
+See `bench/native-clearing-results.md` for the measured execution, entry,
+exit and deployment costs. Off-chain coordination, list availability,
+and the time to collect signatures remain outside the gas measurement.
