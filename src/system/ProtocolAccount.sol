@@ -12,8 +12,9 @@ contract ProtocolAccount {
     /// @custom:storage-location erc7201:sinister-rabbit.ProtocolAccount
     struct AccountStorage {
         mapping(uint192 => uint64) next;
-        bool executing;
     }
+
+    bytes32 private constant EXECUTION_LOCK = keccak256("sinister-rabbit.ProtocolAccount.execution-lock");
 
     error Unauthorized();
     error Expired();
@@ -33,7 +34,10 @@ contract ProtocolAccount {
         PaymentIntents.Intent calldata intent, bytes calldata signature, uint256 fee, address relayer
     ) external {
         AccountStorage storage state = _storage();
-        if (state.executing) revert ReentrantExecution();
+        bytes32 lock = EXECUTION_LOCK;
+        bool executing;
+        assembly ("memory-safe") { executing := tload(lock) }
+        if (executing) revert ReentrantExecution();
         if (block.timestamp > intent.deadline) revert Expired();
         uint64 next = state.next[intent.nonceKey];
         if (next == type(uint64).max || next != intent.nonceSeq) revert InvalidNonce();
@@ -42,11 +46,11 @@ contract ProtocolAccount {
         bytes32 digest = hashIntent(intent);
         if (!_signedByAccount(digest, signature)) revert Unauthorized();
 
-        state.executing = true;
+        assembly ("memory-safe") { tstore(lock, 1) }
         state.next[intent.nonceKey] = next + 1;
         _transfer(intent.asset, intent.payee, intent.amount);
         _transfer(intent.asset, relayer, fee);
-        state.executing = false;
+        assembly ("memory-safe") { tstore(lock, 0) }
 
         emit IntentExecuted(
             digest, intent.payee, intent.asset, intent.amount, fee, relayer, intent.serviceId, intent.manifestHash

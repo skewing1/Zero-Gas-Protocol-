@@ -170,6 +170,29 @@ contract ProtocolAccountTest is Test {
         assertEq(payer.nextNonce(1), 2);
     }
 
+    function testMixedBatchSkipsInvalidAndAccumulatesOnlyExecutions() public {
+        PaymentIntents.Intent[] memory intents = new PaymentIntents.Intent[](3);
+        bytes[] memory signatures = new bytes[](3);
+        address[] memory accounts = new address[](3);
+        uint256[] memory fees = new uint256[](3);
+        for (uint256 index; index < 3; ++index) {
+            accounts[index] = address(payer);
+            intents[index] = payment(address(0), uint192(index), 0);
+            signatures[index] = sign(intents[index]);
+        }
+        fees[1] = 11;
+        bytes32 first = payer.hashIntent(intents[0]);
+        bytes32 invalid = payer.hashIntent(intents[1]);
+        bytes32 last = payer.hashIntent(intents[2]);
+        vm.expectEmit(true, true, false, true, address(settler));
+        emit Skipped(address(payer), invalid, abi.encodeWithSelector(ProtocolAccount.FeeOverCap.selector));
+        settler.settleBatch(accounts, intents, signatures, fees);
+        bytes32 prior = keccak256(abi.encode(bytes32(0), address(payer), first, block.number));
+        assertEq(settler.receiptAccumulator(), keccak256(abi.encode(prior, address(payer), last, block.number)));
+        assertEq(payer.nextNonce(1), 0);
+        assertEq(PAYEE.balance, 200);
+    }
+
     function testReentrantPayeeCannotRepeatExecution() public {
         CallbackPayee callback = new CallbackPayee();
         PaymentIntents.Intent memory intent = payment(address(0), 1, 0);
