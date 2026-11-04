@@ -45,14 +45,19 @@ function payoutData(asset, token, payouts) {
 }
 
 async function measure(hash, stage) {
-  const receipt = await rpc('eth_getTransactionReceipt', hash);
+  let receipt;
+  for (let attempt = 0; attempt < 100; ++attempt) {
+    receipt = await rpc('eth_getTransactionReceipt', hash);
+    if (receipt) break;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
   assert.equal(receipt?.status, '0x1', `Transaction failed or was not mined: ${hash}`);
   const transaction = await rpc('eth_getTransactionByHash', hash);
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
   const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0);
   return {
-    stage, hash,
+    stage, hash, from: transaction.from, to: transaction.to,
     gasUsed: Number(BigInt(receipt.gasUsed)),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
