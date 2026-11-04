@@ -20,7 +20,7 @@ contract ClaimSettlementTest is Test {
 
         uint256 start = gasleft();
         uint256 batchId = settlement.publish{value: 5050}(tree[1]);
-        emit log_named_uint("Settlement root publication execution gas", start - gasleft());
+        emit log_named_uint("Settlement root publication in-transaction execution gas (not tx cost)", start - gasleft());
 
         bytes32[] memory proof = new bytes32[](7);
         uint256 claimGas;
@@ -42,7 +42,7 @@ contract ClaimSettlementTest is Test {
             assertEq(recipient.balance, i + 1);
         }
 
-        emit log_named_uint("All 100 claims execution gas", claimGas);
+        emit log_named_uint("All 100 claims in-transaction execution gas (not tx cost)", claimGas);
         assertEq(address(settlement).balance, 0);
         vm.expectRevert(ClaimSettlement.AlreadyClaimed.selector);
         settlement.claim(batchId, 99, payable(address(uint160(1099))), 100, proof);

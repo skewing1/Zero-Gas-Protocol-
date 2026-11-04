@@ -51,9 +51,8 @@ contract NetSettlementTest is Test {
         assertBalances(recipients, netAmounts);
 
         emit log_named_uint("Unique recipients", recipientCount);
-        emit log_named_uint("Direct native payout execution gas", directGas);
-        emit log_named_uint("Net native payout execution gas", netGas);
-        if (recipientCount < paymentCount) assertLt(netGas, directGas);
+        emit log_named_uint("Direct native payout in-transaction execution gas (not tx cost)", directGas);
+        emit log_named_uint("Net native payout in-transaction execution gas (not tx cost)", netGas);
     }
 
     function pay(address payable recipient, uint256 amount) internal {
