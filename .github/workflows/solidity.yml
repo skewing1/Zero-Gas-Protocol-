@@ -71,3 +71,13 @@ jobs:
             bench/results.md
             bench/results.json
           if-no-files-found: error
+      - name: Run native payment pilot
+        run: node scripts/hub/bench-pilot.mjs
+      - name: Upload native pilot receipts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-payment-pilot
+          path: |
+            bench/native-pilot-results.md
+            bench/native-pilot-results.json
+          if-no-files-found: error

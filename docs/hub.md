@@ -107,3 +107,26 @@ hub-credit completion and origin-wallet completion; do not compare them as equal
 These references establish interfaces, not that this implementation is verified.
 Comparisons with AggLayer, Elastic Network and Superchain remain unverified and
 are deferred until the actual protocol and its trust model are specified.
+
+## One-chain payment pilot
+
+`NativePaymentPilot` implements ETH deposits, signed batches, balance reuse
+between participants and direct withdrawals. It verifies each EIP-712 signature
+on chain. The SP1 path remains separate and its proving cost is unmeasured.
+
+Run the pilot using Foundry 1.3.1, Solidity 0.8.30, and Node 20.19.4.
+
+```sh
+forge install foundry-rs/forge-std@v1.9.7 --no-git
+forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-git
+npm --prefix node ci --ignore-scripts
+forge test
+node scripts/hub/bench-pilot.mjs
+```
+
+The script starts a local Prague Anvil and writes the gas report to
+`bench/native-pilot-results.md` and every transaction and receipt to
+`bench/native-pilot-results.json`. For each of 1, 10 and 100 payments per funded
+account it compares the same window against P0 and P0-net. Twenty deterministic
+local wallets each pay up to three distinct counterparties. The comparison
+checks equivalent wallet principal after all funds leave the pilot.
