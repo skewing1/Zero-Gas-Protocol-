@@ -1,0 +1,35 @@
+name: Solidity tests and gas benchmark
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  evm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.3.1
+      - name: Install Solidity test dependency
+        run: forge install foundry-rs/forge-std@v1.9.7 --no-git
+      - name: Compile Solidity
+        run: forge build
+      - name: Run EVM tests and capture gas measurements
+        run: forge test -vv --gas-report | tee gas-report.txt
+      - name: Upload gas report
+        uses: actions/upload-artifact@v4
+        with:
+          name: evm-gas-report
+          path: gas-report.txt
+          if-no-files-found: error
+      - name: Validate reference workload
+        run: node --test scripts/validate-workload.mjs
