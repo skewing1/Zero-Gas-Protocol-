@@ -34,10 +34,7 @@ contract ProtocolAccount {
         PaymentIntents.Intent calldata intent, bytes calldata signature, uint256 fee, address relayer
     ) external {
         AccountStorage storage state = _storage();
-        bytes32 lock = EXECUTION_LOCK;
-        bool executing;
-        assembly ("memory-safe") { executing := tload(lock) }
-        if (executing) revert ReentrantExecution();
+        _enter();
         if (block.timestamp > intent.deadline) revert Expired();
         uint64 next = state.next[intent.nonceKey];
         if (next == type(uint64).max || next != intent.nonceSeq) revert InvalidNonce();
@@ -46,11 +43,10 @@ contract ProtocolAccount {
         bytes32 digest = hashIntent(intent);
         if (!_signedByAccount(digest, signature)) revert Unauthorized();
 
-        assembly ("memory-safe") { tstore(lock, 1) }
         state.next[intent.nonceKey] = next + 1;
         _transfer(intent.asset, intent.payee, intent.amount);
         _transfer(intent.asset, relayer, fee);
-        assembly ("memory-safe") { tstore(lock, 0) }
+        _exit();
 
         emit IntentExecuted(
             digest, intent.payee, intent.asset, intent.amount, fee, relayer, intent.serviceId, intent.manifestHash
@@ -72,6 +68,19 @@ contract ProtocolAccount {
 
     function isValidSignature(bytes32 digest, bytes calldata signature) external view returns (bytes4) {
         return _signedByAccount(digest, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    function _enter() private {
+        bytes32 lock = EXECUTION_LOCK;
+        bool executing;
+        assembly ("memory-safe") { executing := tload(lock) }
+        if (executing) revert ReentrantExecution();
+        assembly ("memory-safe") { tstore(lock, 1) }
+    }
+
+    function _exit() private {
+        bytes32 lock = EXECUTION_LOCK;
+        assembly ("memory-safe") { tstore(lock, 0) }
     }
 
     function _signedByAccount(bytes32 digest, bytes calldata signature) private view returns (bool) {
