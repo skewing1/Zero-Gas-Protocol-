@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 const results = JSON.parse(readFileSync('bench/epoch-results.json'));
-const expected = ['fresh-unique','fresh-distinct-payers','one-payer-1000','one-payer-10000','hundred-payers-10000'];
+const expected = ['fresh-unique','fresh-distinct-payers','one-payer-1000','one-payer-10000','hundred-payers-10000','one-payer-10000-irregular'];
 const rows = [];
 for (const name of expected) for (const asset of ['native','token']) {
   const row = results.find(row => row.scenario.name === name && row.asset === asset);

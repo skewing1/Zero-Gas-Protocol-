@@ -94,16 +94,16 @@ jobs:
           node --test node/test/epochs.test.mjs
       - name: Compare complete payment windows twice
         run: |
-          anvil --chain-id 31337 --hardfork prague > /tmp/epoch-anvil.log 2>&1 &
+          anvil --chain-id 31337 --hardfork prague --prune-history > /tmp/epoch-anvil.log 2>&1 &
           anvil_pid=$!
           trap 'kill "$anvil_pid"' EXIT
           for attempt in {1..50}; do
             if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
             sleep 0.2
           done
-          node scripts/bench-epochs.mjs
+          node scripts/bench-epochs.mjs --reset-between
           cp bench/epoch-results.json /tmp/first-epochs.json
-          node scripts/bench-epochs.mjs
+          node scripts/bench-epochs.mjs --reset-between
           node scripts/check-epoch-determinism.mjs /tmp/first-epochs.json bench/epoch-results.json
           node scripts/epoch-decision.mjs
           cat bench/epoch-results.md

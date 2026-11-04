@@ -99,6 +99,7 @@ async function main() {
     { name: 'fresh-distinct-payers', payers: 100, paymentsPerPayer: 1, payees: 10, assignedPayee: true },
     { name: 'one-payer-1000', payers: 1, paymentsPerPayer: 1000, payees: 10, assignedPayee: false },
     { name: 'one-payer-10000', payers: 1, paymentsPerPayer: 10000, payees: 10, assignedPayee: false },
+    { name: 'one-payer-10000-irregular', payers: 1, paymentsPerPayer: 10000, payees: 10, assignedPayee: false, irregular: true },
     { name: 'hundred-payers-10000', payers: 100, paymentsPerPayer: 100, payees: 10, assignedPayee: true },
   ];
   const selected = process.argv.find(arg => arg.startsWith('--scenario='))?.split('=')[1];
@@ -106,13 +107,14 @@ async function main() {
   const results = [];
   for (const scenario of scenarios.filter(scenario => !selected || scenario.name === selected)) {
     for (const asset of ['native', 'token']) {
+      if (process.argv.includes('--reset-between')) await rpc('anvil_reset');
       const outer = await rpc('evm_snapshot');
       try {
         const { treasury, token, tokenDeployment } = await fixture();
         const wallets = Array.from({ length: scenario.payers }, (_, index) => privateKeyToAccount(accountKey(index)));
         const payments = wallets.map((_, payer) => Array.from({ length: scenario.paymentsPerPayer }, (_, index) => ({
           to: recipient(scenario.assignedPayee ? payer % scenario.payees : index % scenario.payees),
-          amount: BigInt(index % 100 + 1),
+          amount: scenario.irregular ? BigInt(keccak256(toHex(index + 1))) % 100n + 1n : BigInt(index % 100 + 1),
         })));
         const totals = new Map(Array.from({ length: scenario.payees }, (_, index) => [recipient(index).toLowerCase(), 0n]));
         const setup = asset === 'token' ? [tokenDeployment] : [];
@@ -177,8 +179,11 @@ async function main() {
           maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
         });
         const delegation = await receipt(delegationHash, 'delegation');
+        const encoding = [];
         const submissions = await Promise.all(wallets.map(async (account, index) => {
           const packed = encodePayments(payments[index]);
+          if (scenario.irregular) assert.equal(packed.repetitions, 1, "Irregular control must retain all records");
+          encoding[index] = { patternLength: packed.patternLength, repetitions: packed.repetitions, bytes: (packed.data.length - 2) / 2 };
           const epoch = {
             asset: asset === 'native' ? zero : token, recipientsHash: packed.recipientsHash,
             paymentsHash: packed.paymentsHash, feeCap: 0n, nonceKey: 0n, nonceSeq: 0n, deadline: (1n << 64n) - 1n,
@@ -219,7 +224,7 @@ async function main() {
         const cold = sum([deployment.implementation, deployment.settler, delegation, execution]);
         const shared = sum(setup);
         const record = {
-          scenario, asset, payments: direct.length, signatureGas, signatureChecks, baseline: base, steady, cold, sharedSetup: shared,
+          scenario, asset, encoding, payments: direct.length, signatureGas, signatureChecks, baseline: base, steady, cold, sharedSetup: shared,
           settlementSavingPercent: savings(steady.gas, base.gas),
           coldSavingPercent: savings(cold.gas, base.gas),
           allInSavingPercent: savings(cold.gas + shared.gas, base.gas + shared.gas),
@@ -240,16 +245,17 @@ async function main() {
   const lines = [
     '# Compact signed settlement epochs', '',
     'Measured on local Anvil, Prague. Every baseline payment is a separate mined transaction.',
-    'Each payer explicitly signs an entire settlement window. Every original payment remains in transaction calldata.',
+    'Each payer explicitly signs an entire settlement window. The complete ordered payment list is reconstructible from the lossless periodic encoding in calldata.',
     'The account computes recipient totals on-chain. Recipients receive consolidated transfers at window settlement.',
+    'The irregular control uses deterministic varied amounts; it retains all 10,000 pattern records.',
     'Receipt checks assert matching final wallet balances. Intermediate spendability and per-payment event counts differ.',
     'Steady cost includes execution and signature verification. Cold cost adds all protocol deployment and delegation.',
     'All-in savings also include the same token fixture deployment and payer funding on both sides.',
     'The trial uses zero relayer reimbursement. Network gas is still paid by the relayer and counted.',
     'Initial native balances are fixtures, set equally for both paths. No off-chain operating costs are priced.', '',
-    '| Workload | Asset | Payments | P0 gas | Epoch gas | Cold gas | Settlement saving | All-in saving |',
-    '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.payments} | ${row.baseline.gas} | ${row.steady.gas} | ${row.cold.gas} | ${row.settlementSavingPercent}% | ${row.allInSavingPercent}% |`),
+    '| Workload | Asset | Payments | P0 gas | Epoch gas | Cold gas | Encoded pattern records | Settlement saving | All-in saving |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.payments} | ${row.baseline.gas} | ${row.steady.gas} | ${row.cold.gas} | ${row.encoding.reduce((sum, item) => sum + item.patternLength, 0)} | ${row.settlementSavingPercent}% | ${row.allInSavingPercent}% |`),
   ];
   writeFileSync(`${outputDir}/epoch-results.md`, lines.join('\n') + '\n');
 }

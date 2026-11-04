@@ -20,7 +20,7 @@ contract EpochHandler is Test {
         uint64 seq = account.nextNonce(key);
         if (seq == type(uint64).max) return;
         address[] memory to = new address[](1); to[0] = PAYEE;
-        bytes memory payments = abi.encodePacked(uint8(0), amount, uint8(0), amount);
+        bytes memory payments = abi.encodePacked(uint32(1), uint16(2), uint8(0), amount, uint8(0), amount);
         EpochAccount.Epoch memory e = EpochAccount.Epoch(address(0), keccak256(abi.encode(to)), keccak256(payments),10,key,seq,type(uint64).max);
         (uint8 v,bytes32 r,bytes32 s) = vm.sign(KEY,account.hashEpoch(e));
         bytes memory signature = abi.encodePacked(r,s,v);
