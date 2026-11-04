@@ -1,0 +1,12 @@
+{
+  "chainId": 31337,
+  "name": "Anvil local",
+  "rpcEnv": "ANVIL_RPC_URL",
+  "finalityDepthBlocks": 1,
+  "feeModel": "l1",
+  "l1FeeOracle": null,
+  "forcedInclusion": false,
+  "settler": null,
+  "protocolAccountImpl": null,
+  "trustNotes": "Development only. Fill addresses from the local deployment before running a relayer."
+}

@@ -8,6 +8,7 @@ Use Foundry v1.3.1 and Node.js v22.14.0. Install the pinned Solidity test depend
 
 ```sh
 forge install foundry-rs/forge-std@v1.9.7 --no-git
+forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-git
 forge build
 forge test -vv
 node --test scripts/validate-workload.mjs
@@ -16,7 +17,7 @@ node --test scripts/validate-workload.mjs
 Start a dedicated local Anvil node, then run the benchmark in another terminal:
 
 ```sh
-anvil --chain-id 31337 --hardfork cancun --mnemonic 'test test test test test test test test test test test junk' &
+anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' &
 node scripts/bench.mjs
 ```
 
