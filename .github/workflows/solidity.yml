@@ -91,7 +91,7 @@ jobs:
           forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-git
           npm --prefix node ci
           npm --prefix node run build
-          node --test node/test/epochs.test.mjs
+          node --test node/test/epochs.test.mjs scripts/epoch-decision.test.mjs
       - name: Compare complete payment windows twice
         run: |
           anvil --chain-id 31337 --hardfork prague --prune-history > /tmp/epoch-anvil.log 2>&1 &

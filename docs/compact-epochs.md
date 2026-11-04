@@ -42,7 +42,7 @@ The target remains 90–99% lower total network cost for equivalent useful outco
 
 Wallet signing displays commitment hashes. A signing client must display the complete recipient table, payments, totals, fee cap, deadline and nonce lane before requesting the signature, and recompute both hashes locally. Blind approval of hashes supplied by an operator is unsafe. The current SDK exposes that payment data and computed totals; a production wallet review flow and external audit are still required.
 
-`--scenario=<name>` selects a diagnostic workload. Use `--output=<directory>` to keep diagnostic results separate. The target decision command requires all six workloads for both assets and rejects incomplete reports. Signature tracing measures the ECRECOVER precompile calls; it does not treat those calls as the entire signature-handling overhead. Receipt gas already includes hashing, decoding, transfers, events and transaction costs.
+`--scenario=<name>` selects a diagnostic workload. Use `--output=<directory>` to keep diagnostic results separate. The target decision command requires all seven workloads for both assets and rejects incomplete reports. Signature tracing measures the ECRECOVER precompile calls; it does not treat those calls as the entire signature-handling overhead. Receipt gas already includes hashing, decoding, transfers, events and transaction costs.
 
 A signed window is not a completed payment or a reservation of funds. Until execution the payer can spend the balance elsewhere or cancel the lane. Payees must wait for successful settlement and the chain's finality policy before treating a payment as final. Serving a paid request before then introduces credit risk, which this gas benchmark does not price. No funds are locked by signing an epoch.
 
@@ -50,3 +50,10 @@ A signed window is not a completed payment or a reservation of funds. Until exec
 `--reset-between` resets the dedicated local Anvil between workload/asset cases to discard old state history. It is opt-in and must not be used against a development node containing work you want to retain. P0 and epoch execution still start from the same snapshot within each case. Every receipt is saved before resetting. CI uses this option on its own disposable node.
 
 The report includes an irregular 10,000-payment control with deterministic varied amounts, and records each payer's pattern length and repetition count. Repetition-specific savings must not be generalized to independent user signatures or random payment sequences. The logical payment count describes the payer-authorized sequence, not separately authenticated users or verified service deliveries.
+
+
+## Correct comparison for a settlement window
+
+P0-net is the like-for-like baseline: each payer sends one plain transfer per recipient for that window's total. The same aggregation can be done without the protocol. The decision gate compares all-in epoch costs against P0-net; P0 remains a reference that includes the effect of choosing to settle in aggregate. Previously reported 94–99% reductions versus P0 must not be described as protocol-specific savings.
+
+The 1,000-independent-payer/1,000-fresh-recipient control is required in the decision gate. Delegation and epoch submissions use at most 100 accounts per transaction, with every chunk counted. This is a transaction-size policy, not a gas expectation. No contract is changed for this benchmark correction.

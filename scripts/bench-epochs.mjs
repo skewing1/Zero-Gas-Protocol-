@@ -11,6 +11,8 @@ const chain = { id: 31337, name: 'Anvil', nativeCurrency: { name: 'Ether', symbo
   rpcUrls: { default: { http: [rpcUrl] } } };
 const relayer = mnemonicToAccount('test test test test test test test test test test test junk', { addressIndex: 1 });
 const wallet = createWalletClient({ account: relayer, chain, transport: http(rpcUrl) });
+// A transaction policy, not an expected gas value. Every chunk has a real receipt.
+const maxAccountsPerTransaction = 100;
 const gasPrice = 2_000_000_000n;
 const zero = '0x0000000000000000000000000000000000000000';
 const hex = value => '0x' + BigInt(value).toString(16);
@@ -95,6 +97,7 @@ async function main() {
   assert.equal(await rpc('eth_chainId'), '0x7a69');
   execFileSync('forge', ['build'], { stdio: ['ignore', 'ignore', 'inherit'], timeout: 60_000 });
   const scenarios = [
+    { name: 'unique-payers-unique-payees-1000', payers: 1000, paymentsPerPayer: 1, payees: 1000, assignedPayee: true },
     { name: 'fresh-unique', payers: 1, paymentsPerPayer: 100, payees: 100, assignedPayee: false },
     { name: 'fresh-distinct-payers', payers: 100, paymentsPerPayer: 1, payees: 10, assignedPayee: true },
     { name: 'one-payer-1000', payers: 1, paymentsPerPayer: 1000, payees: 10, assignedPayee: false },
@@ -145,40 +148,75 @@ async function main() {
           return actual;
         }
 
-        const baselineSnapshot = await rpc('evm_snapshot');
-        const direct = [];
-        console.log(`Starting ${scenario.name}/${asset}`);
-        for (const [index, account] of wallets.entries()) {
-          await rpc('anvil_impersonateAccount', account.address);
-          for (const payment of payments[index]) {
-            direct.push(asset === 'native' ? await send(account.address, payment.to, payment.amount)
-              : await send(account.address, token, 0n, encodeFunctionData({
-                abi: tokenAbi, functionName: 'transfer', args: [payment.to, payment.amount],
-              })));
+        // P0-net aggregates separately for each payer. Never aggregate funds across payers.
+        const netPayments = payments.map(list => {
+          const byPayee = new Map();
+          for (const { to, amount } of list) {
+            const key = to.toLowerCase();
+            byPayee.set(key, (byPayee.get(key) ?? 0n) + amount);
           }
-          await rpc('anvil_stopImpersonatingAccount', account.address);
-          if (scenario.payers > 1 && (index + 1) % 20 === 0) console.log(`P0 completed for ${index + 1}/${wallets.length} payers`);
+          return [...byPayee].filter(([, amount]) => amount > 0n).map(([to, amount]) => ({ to, amount }));
+        });
+        async function verifyPayers(receipts, label) {
+          for (const [index, account] of wallets.entries()) {
+            const principal = asset === 'native' ? payments[index].reduce((sum, payment) => sum + payment.amount, 0n) : 0n;
+            const spent = receipts.filter(tx => tx.from.toLowerCase() === account.address.toLowerCase())
+              .reduce((sum, tx) => sum + BigInt(tx.feeWei), 0n);
+            assert.equal(BigInt(await rpc('eth_getBalance', account.address, 'latest')), 10n ** 20n - principal - spent,
+              `${label}: payer principal plus its receipt-derived gas`);
+            assert.equal(BigInt(await rpc('eth_call', { to: token, data: encodeFunctionData({
+              abi: tokenAbi, functionName: 'balanceOf', args: [account.address],
+            }) }, 'latest')), 0n, `${label}: payer token balance`);
+          }
         }
-        console.log(`P0 complete: ${scenario.name}/${asset}, ${direct.length} receipts`);
-        const directBalances = await verify();
-        for (const [index, account] of wallets.entries()) {
-          const principal = asset === 'native' ? payments[index].reduce((sum, payment) => sum + payment.amount, 0n) : 0n;
-          const spent = direct.filter(tx => tx.from.toLowerCase() === account.address.toLowerCase())
-            .reduce((sum, tx) => sum + BigInt(tx.feeWei), 0n);
-          assert.equal(BigInt(await rpc('eth_getBalance', account.address, 'latest')), 10n ** 20n - principal - spent,
-            'P0 payer principal plus its receipt-derived gas');
+        async function directPath(label, lists) {
+          const snapshot = await rpc('evm_snapshot');
+          try {
+            const rows = [];
+            for (const [index, account] of wallets.entries()) {
+              await rpc('anvil_impersonateAccount', account.address);
+              try {
+                for (const payment of lists[index]) {
+                  rows.push(asset === 'native' ? await send(account.address, payment.to, payment.amount)
+                    : await send(account.address, token, 0n, encodeFunctionData({
+                      abi: tokenAbi, functionName: 'transfer', args: [payment.to, payment.amount],
+                    })));
+                }
+              } finally {
+                await rpc('anvil_stopImpersonatingAccount', account.address);
+              }
+              if (scenario.payers > 1 && (index + 1) % 100 === 0) console.log(`${label}: ${index + 1}/${wallets.length} payers`);
+            }
+            const balances = await verify();
+            await verifyPayers(rows, label);
+            console.log(`${label} complete: ${scenario.name}/${asset}, ${rows.length} receipts`);
+            return { rows, balances };
+          } finally {
+            assert(await rpc('evm_revert', snapshot), `${label}: restore shared setup snapshot`);
+          }
         }
-        assert(await rpc('evm_revert', baselineSnapshot));
+        console.log(`Starting ${scenario.name}/${asset}`);
+        const p0 = await directPath('P0', payments);
+        const p0Net = await directPath('P0-net', netPayments);
+        const direct = p0.rows;
+        const directNet = p0Net.rows;
+        const directBalances = p0.balances;
+        assert.deepEqual(p0Net.balances, directBalances, 'P0-net and P0 recipient equivalence');
+        assert.equal(directNet.length, netPayments.reduce((count, list) => count + list.length, 0),
+          'Exactly one direct P0-net transfer per nonzero payer/payee pair');
 
         const deployment = await deployEpoch(treasury);
         const authorizationList = await Promise.all(wallets.map(account => account.signAuthorization({
           contractAddress: deployment.implementation.contractAddress, chainId: 31337, nonce: 0,
         })));
-        const delegationHash = await wallet.sendTransaction({
-          to: relayer.address, authorizationList, gas: 29_000_000n,
-          maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
-        });
-        const delegation = await receipt(delegationHash, 'delegation');
+        const delegations = [];
+        for (let offset = 0; offset < authorizationList.length; offset += maxAccountsPerTransaction) {
+          const hash = await wallet.sendTransaction({
+            to: relayer.address, authorizationList: authorizationList.slice(offset, offset + maxAccountsPerTransaction),
+            gas: 29_000_000n, maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice / 2n,
+          });
+          delegations.push(await receipt(hash, 'delegation'));
+        }
         const encoding = [];
         const submissions = await Promise.all(wallets.map(async (account, index) => {
           const packed = encodePayments(payments[index]);
@@ -193,9 +231,12 @@ async function main() {
           });
           return { account: account.address, epoch, recipients: packed.recipients, payments: packed.data, signature, fee: 0n };
         }));
-        const execution = await send(relayer.address, deployment.settler.contractAddress, 0n,
-          encodeFunctionData({ abi: epochAbi, functionName: 'settle', args: [submissions] }));
-        const trace = await rpc('debug_traceTransaction', execution.hash, { tracer: 'callTracer' });
+        const executions = [];
+        for (let offset = 0; offset < submissions.length; offset += maxAccountsPerTransaction) {
+          executions.push(await send(relayer.address, deployment.settler.contractAddress, 0n,
+            encodeFunctionData({ abi: epochAbi, functionName: 'settle',
+              args: [submissions.slice(offset, offset + maxAccountsPerTransaction)] })));
+        }
         let signatureGas = 0;
         let signatureChecks = 0;
         function visit(frame) {
@@ -204,37 +245,42 @@ async function main() {
           }
           for (const child of frame.calls ?? []) visit(child);
         }
-        visit(trace);
-        assert.equal(signatureChecks, wallets.length, 'One actual ecrecover per payer epoch');
-        assert.deepEqual(await verify(), directBalances);
-        assert.equal(execution.logs.filter(log => log.address.toLowerCase() === deployment.settler.contractAddress.toLowerCase() &&
-          log.topics[0] === keccak256(toHex('EpochRecorded(address,bytes32,bytes32)'))).length,
-          wallets.length, 'One successful receipt per payer');
-        assert.equal(await rpc('eth_getBalance', deployment.settler.contractAddress, 'latest'), '0x0');
-        for (const [index, account] of wallets.entries()) {
-          const principal = asset === 'native' ? payments[index].reduce((sum, payment) => sum + payment.amount, 0n) : 0n;
-          assert.equal(BigInt(await rpc('eth_getBalance', account.address, 'latest')), 10n ** 20n - principal, 'Epoch payer principal');
-          assert.equal(await rpc('eth_call', { to: token, data: encodeFunctionData({
-            abi: tokenAbi, functionName: 'balanceOf', args: [account.address],
-          }) }, 'latest'), '0x' + '0'.repeat(64));
+        for (const execution of executions) {
+          visit(await rpc('debug_traceTransaction', execution.hash, { tracer: 'callTracer' }));
         }
-
+        assert.equal(signatureChecks, wallets.length, 'One actual ecrecover per payer epoch');
+        const epochBalances = await verify();
+        assert.deepEqual(epochBalances, directBalances, 'Epoch and P0 recipient equivalence');
+        assert.deepEqual(epochBalances, p0Net.balances, 'Epoch and P0-net recipient equivalence');
+        const recorded = executions.flatMap(execution => execution.logs).filter(log =>
+          log.address.toLowerCase() === deployment.settler.contractAddress.toLowerCase() &&
+          log.topics[0] === keccak256(toHex('EpochRecorded(address,bytes32,bytes32)')));
+        assert.equal(recorded.length, wallets.length, 'One successful receipt per payer');
+        const recordedAccounts = new Set(recorded.map(log => '0x' + log.topics[1].slice(-40).toLowerCase()));
+        assert.equal(recordedAccounts.size, wallets.length, 'No duplicate payer receipts');
+        for (const account of wallets) assert(recordedAccounts.has(account.address.toLowerCase()));
+        await verifyPayers([], 'Epoch');
+        assert.equal(await rpc('eth_getBalance', deployment.settler.contractAddress, 'latest'), '0x0');
         const base = sum(direct);
-        const steady = sum([execution]);
-        const cold = sum([deployment.implementation, deployment.settler, delegation, execution]);
+        const net = sum(directNet);
+        const steady = sum(executions);
+        const cold = sum([deployment.implementation, deployment.settler, ...delegations, ...executions]);
         const shared = sum(setup);
         const record = {
-          scenario, asset, encoding, payments: direct.length, signatureGas, signatureChecks, baseline: base, steady, cold, sharedSetup: shared,
+          scenario, asset, encoding, payments: direct.length, signatureGas, signatureChecks, baseline: base, baselineNet: net, steady, cold, sharedSetup: shared, maxAccountsPerTransaction,
           settlementSavingPercent: savings(steady.gas, base.gas),
           coldSavingPercent: savings(cold.gas, base.gas),
           allInSavingPercent: savings(cold.gas + shared.gas, base.gas + shared.gas),
+          settlementSavingVsP0NetPercent: savings(steady.gas, net.gas),
+          allInSavingVsP0NetPercent: savings(cold.gas + shared.gas, net.gas + shared.gas),
           finalBalances: directBalances,
-          receipts: { direct, epoch: [deployment.implementation, deployment.settler, delegation, execution], setup },
+          balanceEquivalence: { p0: p0.balances, p0Net: p0Net.balances, epoch: epochBalances },
+          receipts: { direct, directNet, epoch: [deployment.implementation, deployment.settler, ...delegations, ...executions], setup },
         };
         results.push(record);
         mkdirSync(outputDir, { recursive: true });
         writeFileSync(`${outputDir}/epoch-progress.json`, JSON.stringify(results, null, 2) + '\n');
-        console.log(`${scenario.name}/${asset}: P0 ${base.gas}, epoch ${steady.gas}, all-in saving ${record.allInSavingPercent}%`);
+        console.log(`${scenario.name}/${asset}: P0 ${base.gas}, P0-net ${net.gas}, epoch ${steady.gas}, all-in vs P0 ${record.allInSavingPercent}%, vs P0-net ${record.allInSavingVsP0NetPercent}%`);
       } finally {
         assert(await rpc('evm_revert', outer));
       }
@@ -243,19 +289,24 @@ async function main() {
   mkdirSync(outputDir, { recursive: true });
   writeFileSync(`${outputDir}/epoch-results.json`, JSON.stringify(results, null, 2) + '\n');
   const lines = [
-    '# Compact signed settlement epochs', '',
-    'Measured on local Anvil, Prague. Every baseline payment is a separate mined transaction.',
-    'Each payer explicitly signs an entire settlement window. The complete ordered payment list is reconstructible from the lossless periodic encoding in calldata.',
-    'The account computes recipient totals on-chain. Recipients receive consolidated transfers at window settlement.',
-    'The irregular control uses deterministic varied amounts; it retains all 10,000 pattern records.',
-    'Receipt checks assert matching final wallet balances. Intermediate spendability and per-payment event counts differ.',
-    'Steady cost includes execution and signature verification. Cold cost adds all protocol deployment and delegation.',
-    'All-in savings also include the same token fixture deployment and payer funding on both sides.',
-    'The trial uses zero relayer reimbursement. Network gas is still paid by the relayer and counted.',
-    'Initial native balances are fixtures, set equally for both paths. No off-chain operating costs are priced.', '',
-    '| Workload | Asset | Payments | P0 gas | Epoch gas | Cold gas | Encoded pattern records | Settlement saving | All-in saving |',
+    '# Compact signed settlement epochs: matched settlement-window baseline', '',
+    'Measured on local Anvil, Prague. All gas and fees come from actual receipts.',
+    'P0 (per-payment transactions) sends every original payment separately; saving vs P0 includes the effect of choosing to settle in aggregate.',
+    'P0-net (same settlement window, no protocol) sends one plain transfer per nonzero payer/payee total, independently for each payer.',
+    'P0, P0-net and epoch start from the same setup state. Final recipient balances match; payer principal is checked after accounting for each payer’s receipt-derived gas.',
+    'The complete ordered epoch payment list is reconstructible from its lossless periodic encoding. Irregular sequences retain every record.',
+    'Cold epoch gas includes protocol deployment and delegation. All-in savings additionally include the same token deployment and payer funding on both sides.',
+    'The 90% and 99% decision gates use P0-net, not P0. Negative saving means the protocol costs more.',
+    `Epoch submission and delegation transactions are capped at ${maxAccountsPerTransaction} accounts each so the 1,000-payer workload fits transaction limits. All chunk receipts are counted.`,
+    'Zero relayer reimbursement is used; relayer network fees are counted. Native initial balances are equal fixtures. Proof, service verification and off-chain operating costs remain excluded.', '',
+    '| Workload | Asset | Payments | P0 gas | P0-net gas | Epoch settlement gas | Epoch cold gas | Saving vs P0, all-in* | Saving vs P0-net, all-in |',
     '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
-    ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.payments} | ${row.baseline.gas} | ${row.steady.gas} | ${row.cold.gas} | ${row.encoding.reduce((sum, item) => sum + item.patternLength, 0)} | ${row.settlementSavingPercent}% | ${row.allInSavingPercent}% |`),
+    ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.payments} | ${row.baseline.gas} | ${row.baselineNet.gas} | ${row.steady.gas} | ${row.cold.gas} | ${row.allInSavingPercent}% | ${row.allInSavingVsP0NetPercent}% |`), '',
+    '*Saving vs P0 includes the effect of choosing to settle in aggregate; it is not the protocol-specific improvement.', '',
+    '## Settlement-only sensitivity (deployment and delegation excluded)', '',
+    '| Workload | Asset | Saving vs P0* | Saving vs P0-net | P0 txs | P0-net txs | Epoch settlement txs |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: |',
+    ...results.map(row => `| ${row.scenario.name} | ${row.asset} | ${row.settlementSavingPercent}% | ${row.settlementSavingVsP0NetPercent}% | ${row.baseline.transactions} | ${row.baselineNet.transactions} | ${row.steady.transactions} |`),
   ];
   writeFileSync(`${outputDir}/epoch-results.md`, lines.join('\n') + '\n');
 }

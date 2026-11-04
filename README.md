@@ -37,4 +37,6 @@ P5 measures one Settler batch of EIP-7702 signed intents delivering funds direct
 
 The research path in [compact epochs](docs/compact-epochs.md) authorizes many payments with one payer signature and computes consolidated payouts on-chain. Run `npm --prefix node run build`, then `node scripts/bench-epochs.mjs --reset-between` against a dedicated disposable Prague Anvil. Version 2 losslessly encodes repeated sequences and retains every record for irregular sequences. Run `node scripts/epoch-decision.mjs` to evaluate the complete report against the 90% and 99% thresholds.
 
+The 90%/99% gate uses P0-net: ordinary direct transfers of each payer/payee window total. Savings versus per-payment P0 include the effect of choosing aggregation and are reference values only.
+
 Read [measured results](bench/epoch-results.md) and the [target decision](bench/epoch-decision.md) together. Large repeated-payment windows and independent single payments are separate workloads. This path changes intermediate spendability and does not yet provide service-bound or anchored payment proofs. Its savings do not establish the full-platform target.
