@@ -19,7 +19,7 @@ Run `npm --prefix node ci` to install the pinned benchmark dependencies.
 Start a dedicated local Anvil node, then run the benchmark in another terminal:
 
 ```sh
-anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' &
+anvil --chain-id 31337 --hardfork prague --steps-tracing --mnemonic 'test test test test test test test test test test test junk' &
 node scripts/bench.mjs
 ```
 
