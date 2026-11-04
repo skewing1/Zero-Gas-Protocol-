@@ -7,7 +7,7 @@ const quantity = value => '0x' + value.toString(16);
 const same = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
 
 export function createMerchant(rpc, { payee, amountWei, chainId, estimateFees, actualOperatorFee }) {
-  if (!address.test(payee) || BigInt(payee) === 0n || amountWei <= 0n) throw new Error('Invalid merchant configuration');
+  if (!address.test(payee) || BigInt(payee) === 0n || amountWei <= 0n) throw new Error('Invalid transfer configuration');
   const quotes = new Map();
 
   return {
@@ -23,7 +23,7 @@ export function createMerchant(rpc, { payee, amountWei, chainId, estimateFees, a
         value: quantity(amountWei), issuedBlock: block.number, expiresAt: quantity(BigInt(block.timestamp) + 600n),
       };
       const tx = paymentTransaction(quote);
-      // A simulation balance lets an unfunded shopper see the price and fee.
+      // A simulation balance lets an unfunded transactor see the amount and fee.
       const overrides = { [payer]: { balance: quantity(amountWei + 10n ** 18n) } };
       const gas = BigInt(await rpc('eth_estimateGas', tx, block.number, overrides));
       const fees = estimateFees

@@ -153,20 +153,20 @@ See `bench/native-clearing-results.md` for the measured execution, entry,
 exit and deployment costs. Off-chain coordination, list availability,
 and the time to collect signatures remain outside the gas measurement.
 
-### Direct wallet checkout
+### Direct wallet transfer
 
 Run `anvil --hardfork prague` and then `node network/checkout/server.mjs`.
 Open http://127.0.0.1:8080 with a local development wallet on chain 31337.
-The demo quotes 0.001 ETH to the second Anvil account. Get the price and
-estimated fee, then approve one transfer. The wallet shows the final fee
-before approval. The merchant matches the mined transaction to a random
+The demo quotes a 0.001 ETH transfer to the second Anvil account. Review the
+amount and estimated fee, then approve one transfer. The wallet shows the final
+fee before approval. The receiver service matches the mined transaction to a random
 16-byte quote identifier, payer, payee, amount, chain and quote window.
 The quote store is in memory and verification checks the currently canonical
-block with one mined confirmation. This demo records payment status only.
-Production fulfillment needs persistent order records and a finality policy.
+block with one mined confirmation. This demo reports whether the transfer has been mined. Production services
+need persistent transaction records and a finality policy.
 
 With Node dependencies installed, run `node scripts/hub/bench-pilot.mjs --checkout`
-to benchmark the same client and merchant code using a local RPC wallet adapter.
+to benchmark the same transfer code using a local RPC wallet adapter.
 The benchmark resets Anvil between paths, checks final principal and rejects
 a transaction presented for a different quote. The synthetic merchant workloads
 and measured results are in `bench/direct-checkout-results.md`. Raw receipts,
@@ -203,13 +203,13 @@ The historical Base fee breakdown adds receipt execution and data fees and the
 from the GasPriceOracle at each sample block. The checkout estimate uses a
 read-only balance override and the oracle's upper bound for data fees.
 
-The observed fee gap is relevant when shoppers and merchants already hold
-spendable Base balances. A shopper who needs to enter from Ethereum must
+The observed fee gap is relevant when network transactors already hold
+spendable Base balances. A transactor who needs to enter from Ethereum must
 include that expense. Only one native portal entry receipt matched the search
 window, and no completed withdrawal flow was sampled. Use these figures as a
 screen for the payment route, with separate accounting for entry and exit.
 
-### Base Sepolia checkout
+### Base Sepolia network transfers
 
 With the locked Node dependencies installed, set `CHECKOUT_PAYEE` to your
 receiving testnet wallet and run:
@@ -218,12 +218,15 @@ receiving testnet wallet and run:
 CHECKOUT_PAYEE=0xYourTestnetWallet node network/checkout/server.mjs --base-sepolia
 ```
 
-Open http://127.0.0.1:8080 in a browser with an Ethereum wallet. Get the
-price and estimated total, then approve the payment. The page asks the
-wallet to add or switch to Base Sepolia if needed, sends one payment and
-polls for its receipt. A wallet without enough test ETH sees a funding
-message before approval. The shopper can obtain test ETH separately and
-request a new quote. The checkout has no bridge action.
+Open http://127.0.0.1:8080 in a browser with an Ethereum wallet. Review the
+transfer amount, recipient and estimated total, then approve the transfer.
+The page asks the wallet to add or switch to Base Sepolia if needed and
+polls for the transaction receipt. A transactor without enough test ETH sees
+a funding message and can request a new quote after funding separately.
+
+Transactors can send or receive value as peers. The demo uses a configured
+recipient and amount for each deployment. The merchant benchmark remains a
+specific workload used to measure fee behavior.
 
 The estimate combines execution, an oracle upper bound for L1 data, and
 operator fees. The final wallet quote can change with network conditions.
@@ -236,6 +239,6 @@ Local checkout still runs with `node network/checkout/server.mjs`.
 Live Base Sepolia verification covers read-only fee quotes. Local Anvil
 covers actual payment receipts. Wallet behavior is tested using provider
 stubs. Quote state remains in memory and the demo reports mined status
-after one confirmation. Persistent merchant fulfillment and a finality
+after one confirmation. Persistent transaction records and a finality
 policy are still needed for production. The mainnet fee evidence remains
 the separate sample in `bench/rollup-fees-results.md`.
