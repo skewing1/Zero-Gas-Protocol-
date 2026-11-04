@@ -18,7 +18,7 @@ No saving is established until real proofs, entry, exit and all portal relays
 are measured. Keep P0-net comparisons as well as P0; the same payer/payee window
 must be available to both baseline and protocol.
 
-## Blocking exit counterexample
+## Original exit counterexample
 
 Run `node --test hub/spec/exit-safety.test.mjs`.
 These are arithmetic specification tests, not tests of implemented contracts.
@@ -81,6 +81,14 @@ branch. There is no real Groth16 proof, export proof, hardware measurement,
 point-evaluation integration, four-chain deployment or network price snapshot.
 The mandatory blob/proof gate is therefore NOT PASSED. Do not start Phase 2,
 create rc1, or produce mainnet deployment artifacts on this basis.
+
+## Corrected exit design
+
+The canonical-origin escape reference model in `hub/model/escape.mjs` now
+resolves the stale-snapshot counterexample under authenticated-export assumptions.
+See `docs/hub-escape.md` for the chosen protocol, race ordering, refund/claim rules,
+and explicit Ethereum-availability tradeoff. This is executable model progress,
+not completion of the cryptographic or contract gates.
 
 ## Next implementation gate
 

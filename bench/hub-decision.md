@@ -13,5 +13,5 @@ The executable specification counterexample is documented in docs/hub.md.
 All four requested workloads, all batch sizes and K values remain unmeasured.
 There are no receipt or proof fixtures represented as measured results.
 Proving times: unavailable. Chain C loss bound: not established; caps are not
-configured and the exit-state safety counterexample is unresolved.
+configured and the corrected exit model is not yet contract/proof verified.
 Phase 1 gate: BLOCKED. Phase 2/3/4 prerequisites: NOT SATISFIED.
