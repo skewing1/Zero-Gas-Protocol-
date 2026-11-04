@@ -98,10 +98,14 @@ export class Ledger {
     })();
   }
 
+  receiptRows() {
+    return (this.db.prepare('SELECT body FROM receipts').all() as { body: string }[])
+      .map(({ body }) => JSON.parse(body) as Receipt);
+  }
+
   summary() {
     const totals = { receipts: 0, costWei: 0n, failedCostWei: 0n, skipped: 0, earnedByAsset: {} as Record<string, bigint> };
-    for (const { body } of this.db.prepare('SELECT body FROM receipts').all() as { body: string }[]) {
-      const receipt = JSON.parse(body) as Receipt;
+    for (const receipt of this.receiptRows()) {
       ++totals.receipts;
       totals.costWei += BigInt(receipt.cost);
       if (receipt.failed) totals.failedCostWei += BigInt(receipt.cost);

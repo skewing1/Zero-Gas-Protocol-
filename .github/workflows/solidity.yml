@@ -50,6 +50,8 @@ jobs:
             if cast chain-id --rpc-url http://127.0.0.1:8545; then break; fi
             sleep 0.2
           done
+          npm --prefix node run build
+          node --test node/test/relayer.test.mjs
           node scripts/bench.mjs
           cp bench/results.json /tmp/receipt-results-first.json
           node scripts/bench.mjs
