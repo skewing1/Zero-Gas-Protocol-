@@ -22,11 +22,12 @@ const gasPrice = 2_000_000_000n;
 const deposit = 10n ** 15n;
 const mnemonic = 'test test test test test test test test test test test junk';
 const clearing = process.argv.includes('--clearing');
-const checkout = process.argv.includes('--checkout');
+const merchantScreen = process.argv.includes('--merchant-screen');
+const checkout = merchantScreen || process.argv.includes('--checkout');
 assert(!(clearing && checkout), 'Choose one benchmark mode');
-const contractName = clearing ? 'NativeClearingPilot' : 'NativePaymentPilot';
+const contractName = clearing || merchantScreen ? 'NativeClearingPilot' : 'NativePaymentPilot';
 const output = clearing ? 'bench/native-clearing-results' : 'bench/native-pilot-results';
-const artifact = checkout ? null : JSON.parse(readFileSync(`out/${contractName}.sol/${contractName}.json`, 'utf8'));
+const artifact = checkout && !merchantScreen ? null : JSON.parse(readFileSync(`out/${contractName}.sol/${contractName}.json`, 'utf8'));
 const types = {
   HubTransfer: [
     { name: 'from', type: 'address' }, { name: 'to', type: 'address' },
@@ -210,7 +211,7 @@ async function clearWindow(accounts, operator, contract, payments, initial, expe
   row.paymentList = payments.map(payment => ({ ...payment, amount: payment.amount.toString() }));
   return row;
 }
-async function benchCheckout(shoppers, payees, visits) {
+async function benchCheckout(shoppers, payees, visits, operator) {
   await rpc('anvil_reset');
   const accounts = [...shoppers, ...payees];
   const amount = 10n ** 15n;
@@ -224,7 +225,8 @@ async function benchCheckout(shoppers, payees, visits) {
       totals.set(key, { from, to, amount: amount + (totals.get(key)?.amount ?? 0n) });
     }
   }
-  const expected = new Map(await Promise.all(accounts.map(async ({ address }) => [addressKey(address), await balance(address)])));
+  const initial = new Map(await Promise.all(accounts.map(async ({ address }) => [addressKey(address), await balance(address)])));
+  const expected = new Map(initial);
   for (const { from, to, amount: value } of payments) {
     expected.set(addressKey(from), expected.get(addressKey(from)) - value);
     expected.set(addressKey(to), expected.get(addressKey(to)) + value);
@@ -261,31 +263,77 @@ async function benchCheckout(shoppers, payees, visits) {
       }
       quotes.push(quote);
     }
+    return { summary: summarize(rows), rows, quotes, walletBalances: await verify(rows) };
+  }
+  async function verify(rows) {
     const fees = new Map();
     for (const row of rows) {
       const key = addressKey(row.tx.from);
       fees.set(key, (fees.get(key) ?? 0n) + fee(row));
     }
-    const walletBalances = await Promise.all(accounts.map(async ({ address }) => {
+    return Promise.all(accounts.map(async ({ address }) => {
       const key = addressKey(address);
       const actual = await balance(address);
       assert.equal(actual + (fees.get(key) ?? 0n), expected.get(key));
       return actual.toString();
     }));
-    return { summary: summarize(rows), rows, quotes, walletBalances };
   }
   const p0 = await run(payments, false);
   const p0Net = totals.size === payments.length ? p0 : await run([...totals.values()], false);
+  if (merchantScreen) {
+    await rpc('anvil_reset');
+    const deployment = await send('deployment', operator, undefined, 0n, artifact.bytecode.object);
+    const contract = deployment.receipt.contractAddress;
+    const rows = [deployment];
+    for (const { address } of shoppers) {
+      rows.push(await send('deposit', address, contract, amount * BigInt(visits), callData('deposit')));
+    }
+    rows.push(await clearWindow(accounts, operator, contract, payments, initial, expected));
+    for (const { address } of payees) {
+      const proceeds = expected.get(addressKey(address)) - initial.get(addressKey(address));
+      rows.push(await send('withdrawal', address, contract, 0n, callData('withdraw', [proceeds])));
+    }
+    assert.equal(await balance(contract), 0n);
+    const endpointRows = rows.filter(row => row.stage === 'deposit' || row.stage === 'withdrawal');
+    return {
+      shoppers: shoppers.length, merchants: payees.length, visits, payments: payments.length,
+      p0, p0Net, pilot: { summary: summarize(rows), rows, walletBalances: await verify(rows) },
+      endpoints: summarize(endpointRows),
+    };
+  }
   const directCheckout = await run(payments, true);
   return { shoppers: shoppers.length, merchants: payees.length, visits, payments: payments.length, p0, p0Net, directCheckout };
 }
 
-async function runCheckout(accounts, client) {
+async function runCheckout(accounts, client, operator) {
   const shoppers = accounts.slice(0, 20);
   const payees = accounts.slice(20);
   const results = [];
   for (const [visits, merchants] of [[1, 1], [10, 1], [10, 3]]) {
-    results.push(await benchCheckout(shoppers, payees.slice(0, merchants), visits));
+    results.push(await benchCheckout(shoppers, payees.slice(0, merchants), visits, operator));
+  }
+  if (merchantScreen) {
+    const report = [
+      '# Can the funded hub reach 90% on merchant payments?', '',
+      `Local Prague receipts from ${client}.`,
+      'Each shopper deposits exactly enough for the full window. Merchants withdraw once each. All routes reach equivalent final wallet balances after fees. The clearing contract uses real signatures.',
+      'The entry and exit column removes all settlement and deployment gas from the measured pilot. It gives an optimistic cost for this funding and cash-out design. Data publication and operating costs are also omitted from that column.',
+      '',
+      '| Shoppers | Merchants | Purchases per shopper | P0 gas | P0-net gas | Full pilot gas | Entry and exit alone | Full gas budget at 90% vs P0-net |',
+      '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+      ...results.map(({ shoppers, merchants, visits, p0, p0Net, pilot, endpoints }) =>
+        `| ${shoppers} | ${merchants} | ${visits} | ${p0.summary.gas} | ${p0Net.summary.gas} | ${pilot.summary.gas} | ${endpoints.gas} | ${Math.floor(p0Net.summary.gas / 10)} |`),
+      '',
+      ...results.map(({ merchants, visits, endpoints, p0Net }) =>
+        `- ${visits} purchases per shopper across ${merchants} merchant(s): entry and exit alone use ${(10 * endpoints.gas / p0Net.summary.gas).toFixed(1)}× the 90% gas budget.`),
+      '',
+      'This screen applies to individually funded native ETH balances on one chain, with wallet payouts at the end of the window. It does not estimate savings on another chain or with an alternative funding model.', '',
+    ].join('\n');
+    mkdirSync('bench', { recursive: true });
+    writeFileSync('bench/merchant-screen-results.json', JSON.stringify({ client, chainId, results }, null, 2));
+    writeFileSync('bench/merchant-screen-results.md', report);
+    console.log(report);
+    return;
   }
   const gasIncrease = (cost, baseline) => (100 * (cost / baseline - 1)).toFixed(2) + '%';
   const lines = [
@@ -331,7 +379,7 @@ try {
     return account;
   });
   if (checkout) {
-    await runCheckout(accounts, ready);
+    await runCheckout(accounts, ready, operator);
   } else {
     const results = [];
     for (const reuse of [1, 10, 100]) {

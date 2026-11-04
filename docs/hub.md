@@ -173,3 +173,17 @@ and measured results are in `bench/direct-checkout-results.md`. Raw receipts,
 quotes and transaction inputs are emitted as a CI artifact. Random identifiers
 can contain different numbers of zero bytes, causing small gas differences
 between runs.
+
+### Merchant feasibility screen
+
+`node scripts/hub/bench-pilot.mjs --merchant-screen` measures shopper deposits,
+joint clearing and merchant cash-outs. The report compares equivalent final
+wallet balances with direct window settlement. Even assigning zero gas to
+deployment, proofs and settlement, entry and exit exceed the entire 90%
+budget for each tested merchant workload. Further settlement optimization
+cannot close this gap while preserving the same entry and exit design.
+
+Use `bench/merchant-screen-results.md` as a stop condition for this design.
+A successor needs a different funding or execution model. Count its full
+lifecycle cost and compare against direct payment on the same chain and
+against Ethereum separately.
