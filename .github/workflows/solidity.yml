@@ -33,3 +33,5 @@ jobs:
           if-no-files-found: error
       - name: Validate reference workload
         run: node --test scripts/validate-workload.mjs
+      - name: Test signed service discovery
+        run: node --test network/records.test.mjs
