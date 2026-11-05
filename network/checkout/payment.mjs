@@ -2,6 +2,16 @@ export function paymentTransaction(quote) {
   return { from: quote.payer, to: quote.payee, value: quote.value, data: quote.id };
 }
 
+export function parseTransferAmount(value) {
+  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)(\.[0-9]{1,18})?$/.test(value)) {
+    throw new Error('Enter an ETH amount with up to 18 decimal places.');
+  }
+  const [whole, fraction = ''] = value.split('.');
+  const amount = BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, '0'));
+  if (amount <= 0n || amount >= 2n ** 256n) throw new Error('Amount is outside the supported range.');
+  return amount;
+}
+
 const baseSepolia = {
   chainId: '0x14a34',
   chainName: 'Base Sepolia',
@@ -31,5 +41,9 @@ export async function approvePayment(wallet, quote) {
   if (![31337, 84532].includes(quote.chainId)) throw new Error('Unsupported checkout network.');
   if (quote.canPay === false) throw new Error('Insufficient ETH on the quoted network.');
   await useQuotedNetwork(wallet, quote.chainId);
+  const [account] = await wallet.request({ method: 'eth_accounts' });
+  if (typeof account !== 'string' || account.toLowerCase() !== quote.payer.toLowerCase()) {
+    throw new Error('Wallet account changed. Review the transfer again.');
+  }
   return wallet.request({ method: 'eth_sendTransaction', params: [paymentTransaction(quote)] });
 }

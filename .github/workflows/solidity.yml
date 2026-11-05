@@ -38,8 +38,8 @@ jobs:
           if-no-files-found: error
       - name: Validate reference workload
         run: node --test scripts/validate-workload.mjs
-      - name: Test service discovery and checkout wallet flow
-        run: node --test network/records.test.mjs network/checkout/payment.test.mjs
+      - name: Test records and network transfer flow
+        run: node --test network/records.test.mjs network/checkout/*.test.mjs
       - name: Install relayer and benchmark dependencies
         run: npm --prefix node ci
       - name: Run receipt benchmarks twice
@@ -77,11 +77,14 @@ jobs:
           node scripts/hub/bench-pilot.mjs --clearing
           node scripts/hub/bench-pilot.mjs --checkout
           node scripts/hub/bench-pilot.mjs --merchant-screen
+          node scripts/hub/bench-pilot.mjs --transactors
       - name: Upload native pilot receipts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-payment-pilot
           path: |
+            bench/network-transactors-results.md
+            bench/network-transactors-results.json.gz
             bench/native-pilot-results.md
             bench/native-pilot-results.json
             bench/native-clearing-results.md

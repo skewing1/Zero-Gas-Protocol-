@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { createServer } from 'node:net';
 import { setTimeout } from 'node:timers/promises';
 import {
@@ -21,12 +22,13 @@ const chainId = 31337;
 const gasPrice = 2_000_000_000n;
 const deposit = 10n ** 15n;
 const mnemonic = 'test test test test test test test test test test test junk';
-const clearing = process.argv.includes('--clearing');
+const transactors = process.argv.includes('--transactors');
+const clearing = transactors || process.argv.includes('--clearing');
 const merchantScreen = process.argv.includes('--merchant-screen');
 const checkout = merchantScreen || process.argv.includes('--checkout');
 assert(!(clearing && checkout), 'Choose one benchmark mode');
 const contractName = clearing || merchantScreen ? 'NativeClearingPilot' : 'NativePaymentPilot';
-const output = clearing ? 'bench/native-clearing-results' : 'bench/native-pilot-results';
+const output = transactors ? 'bench/network-transactors-results' : clearing ? 'bench/native-clearing-results' : 'bench/native-pilot-results';
 const artifact = checkout && !merchantScreen ? null : JSON.parse(readFileSync(`out/${contractName}.sol/${contractName}.json`, 'utf8'));
 const types = {
   HubTransfer: [
@@ -93,8 +95,8 @@ function buildWorkload(accounts, reuse, counterparties) {
   }
   return { payments, net: [...totals.values()] };
 }
-async function bench(accounts, operator, reuse, counterparties) {
-  const { payments, net } = buildWorkload(accounts, reuse, counterparties);
+async function bench(accounts, operator, reuse, counterparties, workload) {
+  const { payments, net } = workload ?? buildWorkload(accounts, reuse, counterparties);
   const initial = new Map(await Promise.all(accounts.map(async ({ address }) => [addressKey(address), await balance(address)])));
   const expected = new Map(initial);
   for (const { from, to, amount } of payments) {
@@ -114,14 +116,32 @@ async function bench(accounts, operator, reuse, counterparties) {
       return actual.toString();
     }));
   }
-  async function direct(list) {
+  async function direct(list, quoted = false) {
     return isolated(async () => {
       const rows = [];
-      for (const { from, to, amount } of list) rows.push(await send('direct', from, to, amount));
+      const transfers = quoted ? createMerchant(rpc, { chainId }) : undefined;
+      for (const { from, to, amount } of list) {
+        if (!quoted) { rows.push(await send('direct', from, to, amount)); continue; }
+        const quote = await transfers.quote(from, { payee: to, amountWei: amount });
+        const txHash = await approvePayment({ async request({ method, params }) {
+          if (method === 'eth_chainId') return rpc(method);
+          if (method === 'eth_accounts') return [from];
+          assert.equal(method, 'eth_sendTransaction');
+          const [tx] = params;
+          const row = await send('reviewed-transfer', tx.from, tx.to, BigInt(tx.value), tx.data);
+          rows.push(row);
+          return row.receipt.transactionHash;
+        } }, quote);
+        const verified = await transfers.verify(quote.id, txHash);
+        assert.equal(verified.state, 'paid');
+        assert.equal(BigInt(verified.networkFee), fee(rows.at(-1)));
+        await assert.rejects(transfers.verify((await transfers.quote(from, { payee: to, amountWei: amount })).id, txHash), /does not pay/);
+      }
       return { summary: summarize(rows), walletBalances: await verify(rows), rows };
     });
   }
   const p0 = await direct(payments);
+  const reviewedTransfer = transactors ? await direct(payments, true) : undefined;
   // When every pair is unique, P0 and P0-net specify identical transactions in
   // identical order. One receipt set measures both paths.
   const p0Net = net.length === payments.length ? p0 : await direct(net);
@@ -129,7 +149,15 @@ async function bench(accounts, operator, reuse, counterparties) {
     const deployment = await send('deployment', operator, undefined, 0n, artifact.bytecode.object);
     const contract = deployment.receipt.contractAddress;
     const rows = [deployment];
-    for (const { address } of accounts) rows.push(await send('deposit', address, contract, deposit, callData('deposit')));
+    const funding = new Map(accounts.map(({ address }) => {
+      const key = addressKey(address);
+      const deficit = initial.get(key) - expected.get(key);
+      return [key, transactors ? (deficit > 0n ? deficit : 0n) : deposit];
+    }));
+    for (const { address } of accounts) {
+      const amount = funding.get(addressKey(address));
+      if (amount > 0n) rows.push(await send('deposit', address, contract, amount, callData('deposit')));
+    }
     if (clearing) {
       rows.push(await clearWindow(accounts, operator, contract, payments, initial, expected));
     } else {
@@ -138,7 +166,7 @@ async function bench(accounts, operator, reuse, counterparties) {
     for (const { address } of accounts) {
       const amount = BigInt(await rpc('eth_call', { to: contract, data: callData('balanceOf', [address]) }, 'latest'));
       const key = addressKey(address);
-      assert.equal(amount, deposit + expected.get(key) - initial.get(key));
+      assert.equal(amount, funding.get(key) + expected.get(key) - initial.get(key));
       if (amount > 0n) rows.push(await send('withdrawal', address, contract, 0n, callData('withdraw', [amount])));
     }
     assert.equal(await balance(contract), 0n);
@@ -148,7 +176,7 @@ async function bench(accounts, operator, reuse, counterparties) {
         [stage, summarize(rows.filter(row => row.stage === stage))])),
     };
   });
-  return { reuse, participants: accounts.length, counterparties, payments: payments.length, p0, p0Net, pilot };
+  return { scenario: workload?.name, reuse, participants: accounts.length, counterparties, payments: payments.length, p0, p0Net, reviewedTransfer, pilot };
 }
 
 async function settlePayments(accounts, operator, contract, payments) {
@@ -248,6 +276,7 @@ async function benchCheckout(shoppers, payees, visits, operator) {
       const wallet = {
         async request({ method, params }) {
           if (method === 'eth_chainId') return rpc(method);
+          if (method === 'eth_accounts') return [from];
           assert.equal(method, 'eth_sendTransaction');
           const [tx] = params;
           const row = await send('checkout', tx.from, tx.to, BigInt(tx.value), tx.data);
@@ -356,8 +385,51 @@ async function runCheckout(accounts, client, operator) {
   console.log(lines.join('\n'));
 }
 
+async function runTransactors(accounts, operator, client) {
+  const peers = accounts.slice(0, 20);
+  const workloads = [
+    { name: 'unique-payers-unique-payees', participants: accounts, payments: peers.map((payer, index) => ({ from: payer.address, to: accounts[index + 20].address, amount: 10n ** 12n + BigInt(index) })) },
+    { name: 'peer-ring-repeated', participants: peers, payments: buildWorkload(peers, 10, 1).payments },
+    { name: 'mixed-peer-network', participants: peers, payments: buildWorkload(peers, 10, 7).payments },
+    { name: 'all-peers-once-per-pair', participants: peers, payments: buildWorkload(peers, 19, 19).payments },
+  ];
+  const results = [];
+  for (const workload of workloads) {
+    const totals = new Map();
+    for (const payment of workload.payments) {
+      const pair = `${addressKey(payment.from)}:${addressKey(payment.to)}`;
+      totals.set(pair, { ...payment, amount: payment.amount + (totals.get(pair)?.amount ?? 0n) });
+    }
+    const result = await bench(workload.participants, operator, 0, 0, { ...workload, net: [...totals.values()] });
+    results.push(result);
+    console.log(`Measured ${workload.name}`);
+  }
+  const saving = (cost, baseline) => (100 * (1 - cost / baseline)).toFixed(2) + '%';
+  const report = [
+    '# Network transactor lifecycle benchmark', '',
+    `Measured local Prague receipts: ${client}. Native ETH only. Every participant starts with spendable ETH, including gas. No fresh or zero-gas recipient claim is tested.`,
+    'P0 sends each payment directly. P0-net sends each payer/payee window total directly. The pilot deposits, jointly signs one clearing window, and withdraws all funds to wallets. Every route starts at the same snapshot and asserts fee-adjusted final wallet balances.',
+    'Pilot totals include deployment, every deposit, signed clearing, and every withdrawal. Only net debtors fund their exact window deficit; net creditors withdraw their proceeds. Every participant still signs. This is optimized window clearing, with funds usable only when the whole window clears.',
+    'This pilot requires unanimous participant signatures and off-chain payment-list verification and retention. It is not a validity-proven hub. Proof production, durable data publication and operating costs remain unmeasured. Gates below apply only to the measured local pilot.', '',
+    '| Workload | Payments | P0 gas | P0-net gas | Full pilot gas | Saving vs P0 (includes aggregation) | Saving vs P0-net | 90% vs P0-net | 99% vs P0-net |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |',
+    ...results.map(r => `| ${r.scenario} | ${r.payments} | ${r.p0.summary.gas} | ${r.p0Net.summary.gas} | ${r.pilot.summary.gas} | ${saving(r.pilot.summary.gas, r.p0.summary.gas)} | ${saving(r.pilot.summary.gas, r.p0Net.summary.gas)} | ${r.pilot.summary.gas * 10 <= r.p0Net.summary.gas ? 'PASS' : 'FAIL'} | ${r.pilot.summary.gas * 100 <= r.p0Net.summary.gas ? 'PASS' : 'FAIL'} |`), '',
+    '| Workload | Reviewed-transfer gas | Extra gas vs plain P0 | Receipt fee reconciliation |',
+    '| --- | ---: | ---: | --- |',
+    ...results.map(r => `| ${r.scenario} | ${r.reviewedTransfer.summary.gas} | ${r.reviewedTransfer.summary.gas - r.p0.summary.gas} | PASS |`), '',
+    'The reviewed-transfer route uses user-selected recipients and amounts. Each transaction includes a random 16-byte quote ID; its calldata costs gas, so this route claims no protocol saving. Quote IDs make its gas vary slightly across runs; raw receipts are retained.', '',
+    'Fresh recipients, ERC-20, public networks, validity proofs, and the complete proposed system remain unmeasured here. These rows cannot establish platform-wide 90–99% savings.', '',
+  ].join('\n');
+  mkdirSync('bench', { recursive: true });
+  const raw = JSON.stringify({ client, chainId, artifactHash: keccak256(artifact.bytecode.object), results }, null, 2);
+  writeFileSync(`${output}.json`, raw);
+  writeFileSync(`${output}.json.gz`, gzipSync(raw));
+  writeFileSync(`${output}.md`, report);
+  console.log(report);
+}
+
 const anvil = spawn('anvil', ['--silent', '--host', '127.0.0.1', '--port', String(port),
-  '--chain-id', String(chainId), '--hardfork', 'prague', '--accounts', clearing ? '102' : checkout ? '24' : '21', '--mnemonic', mnemonic,
+  '--chain-id', String(chainId), '--hardfork', 'prague', '--accounts', transactors ? '41' : clearing ? '102' : checkout ? '24' : '21', '--mnemonic', mnemonic,
   '--prune-history'], { stdio: ['ignore', 'inherit', 'inherit'] });
 let anvilError;
 anvil.on('error', error => { anvilError = error; });
@@ -372,13 +444,15 @@ try {
   assert.match(ready, /anvil/i);
   assert.equal(BigInt(await rpc('eth_chainId')), BigInt(chainId));
   const [operator, ...unlocked] = await rpc('eth_accounts');
-  assert.equal(unlocked.length, clearing ? 101 : checkout ? 23 : 20);
+  assert.equal(unlocked.length, transactors ? 40 : clearing ? 101 : checkout ? 23 : 20);
   const accounts = unlocked.map((address, index) => {
     const account = mnemonicToAccount(mnemonic, { addressIndex: index + 1 });
     assert.equal(addressKey(account.address), addressKey(address));
     return account;
   });
-  if (checkout) {
+  if (transactors) {
+    await runTransactors(accounts, operator, ready);
+  } else if (checkout) {
     await runCheckout(accounts, ready, operator);
   } else {
     const results = [];

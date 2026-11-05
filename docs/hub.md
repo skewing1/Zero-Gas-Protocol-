@@ -211,21 +211,22 @@ screen for the payment route, with separate accounting for entry and exit.
 
 ### Base Sepolia network transfers
 
-With the locked Node dependencies installed, set `CHECKOUT_PAYEE` to your
-receiving testnet wallet and run:
+With the locked Node dependencies installed, run:
 
 ```sh
-CHECKOUT_PAYEE=0xYourTestnetWallet node network/checkout/server.mjs --base-sepolia
+node network/checkout/server.mjs --base-sepolia
 ```
 
 Open http://127.0.0.1:8080 in a browser with an Ethereum wallet. Review the
-transfer amount, recipient and estimated total, then approve the transfer.
+recipient wallet and ETH amount you enter, plus the estimated total, then approve the transfer.
 The page asks the wallet to add or switch to Base Sepolia if needed and
 polls for the transaction receipt. A transactor without enough test ETH sees
 a funding message and can request a new quote after funding separately.
 
-Transactors can send or receive value as peers. The demo uses a configured
-recipient and amount for each deployment. The merchant benchmark remains a
+Transactors can send or receive value as peers. Each transactor chooses a recipient and amount for each transfer. Amounts are
+parsed as exact wei without floating-point rounding. Changing either field
+requires another review, and the wallet helper rejects an account change
+before submitting. The merchant benchmark remains a
 specific workload used to measure fee behavior.
 
 The estimate combines execution, an oracle upper bound for L1 data, and
@@ -242,3 +243,27 @@ stubs. Quote state remains in memory and the demo reports mined status
 after one confirmation. Persistent transaction records and a finality
 policy are still needed for production. The mainnet fee evidence remains
 the separate sample in `bench/rollup-fees-results.md`.
+
+
+### General network workload check
+
+Run `node scripts/hub/bench-pilot.mjs --transactors` after `forge build` and
+installing the locked Node dependencies. This starts its own isolated Anvil.
+The report is `bench/network-transactors-results.md`; the raw receipt archive
+is `bench/network-transactors-results.json.gz` (decompress with `gzip -dc`).
+The runner also writes an uncompressed JSON for local inspection.
+
+The workloads cover disjoint sender/recipient pairs, repeated peer transfers,
+mixed peers, and each peer paying every other peer once. Participants start
+with ETH for gas: fresh and zero-gas recipients are not tested by this run.
+The clearing pilot funds only each net debtor's deficit, requires everyone's
+signature, and withdraws all credit to wallets. Deployment, funding, clearing
+and withdrawal transactions all count. P0-net remains the decision baseline.
+The signed window requires client verification and retention of its payment
+list. Durable publication and operations are not yet measured.
+
+The same run tests user-selected recipient/amount quotes through the wallet
+helper, sends actual local transactions, rejects receipts for a different
+quote, and reconciles the displayed network fee to each receipt. The quote
+ID adds calldata gas; this direct route claims no protocol gas savings.
+Local results do not establish public-network or platform-wide savings.

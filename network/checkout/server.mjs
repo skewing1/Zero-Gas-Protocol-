@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createMerchant } from './merchant.mjs';
+import { parseTransferAmount } from './payment.mjs';
 
 const testnet = process.argv.includes('--base-sepolia');
 const chainId = testnet ? 84532 : 31337;
@@ -17,12 +18,9 @@ async function rpc(method, ...params) {
 }
 
 if (BigInt(await rpc('eth_chainId')) !== BigInt(chainId)) throw new Error(`Expected checkout chain ${chainId}`);
-const payee = process.env.CHECKOUT_PAYEE ?? (testnet ? undefined : (await rpc('eth_accounts'))[1]);
-if (!payee) throw new Error('Set CHECKOUT_PAYEE to your receiving Base Sepolia wallet address');
-const amountWei = BigInt(process.env.CHECKOUT_AMOUNT_WEI ?? 10n ** 15n);
 const rollupFees = testnet ? await import('./rollup-fees.mjs') : {};
 const merchant = createMerchant(rpc, {
-  payee, amountWei, chainId,
+  chainId,
   estimateFees: rollupFees.estimateBaseFees,
   actualOperatorFee: rollupFees.operatorFee,
 });
@@ -54,8 +52,10 @@ createServer(async (req, res) => {
         return;
       }
     }
-    const { payer, id, transactionHash } = JSON.parse(body);
-    const result = req.url === '/quote' ? await merchant.quote(payer) : await merchant.verify(id, transactionHash);
+    const { payer, payee, amount, id, transactionHash } = JSON.parse(body);
+    const result = req.url === '/quote'
+      ? await merchant.quote(payer, { payee, amountWei: parseTransferAmount(amount) })
+      : await merchant.verify(id, transactionHash);
     json(res, 200, result);
   } catch (error) {
     json(res, 400, { error: error.message });

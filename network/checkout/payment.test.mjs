@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { approvePayment, paymentTransaction } from './payment.mjs';
+import { approvePayment, paymentTransaction, parseTransferAmount } from './payment.mjs';
 
 const quote = {
   chainId: 84532, payer: '0x0000000000000000000000000000000000000001',
@@ -13,6 +13,7 @@ test('a connected Base Sepolia wallet sends only the quoted transaction', async 
   const result = await approvePayment({
     async request({ method, params }) {
       if (method === 'eth_chainId') return '0x14a34';
+      if (method === 'eth_accounts') return [quote.payer];
       assert.equal(method, 'eth_sendTransaction');
       assert.deepEqual(params, [paymentTransaction(quote)]);
       sends++;
@@ -31,6 +32,7 @@ test('an unknown testnet is added and selected before sending', async () => {
     async request({ method, params }) {
       methods.push(method);
       if (method === 'eth_chainId') return chain;
+      if (method === 'eth_accounts') return [quote.payer];
       if (method === 'wallet_switchEthereumChain') {
         assert.equal(params[0].chainId, '0x14a34');
         if (!added) throw Object.assign(new Error('Unknown chain'), { code: 4902 });
@@ -44,7 +46,7 @@ test('an unknown testnet is added and selected before sending', async () => {
       }
     },
   }, quote);
-  assert.deepEqual(methods.filter(method => method !== 'eth_chainId'), [
+  assert.deepEqual(methods.filter(method => !['eth_chainId', 'eth_accounts'].includes(method)), [
     'wallet_switchEthereumChain', 'wallet_addEthereumChain',
     'wallet_switchEthereumChain', 'eth_sendTransaction',
   ]);
@@ -61,4 +63,23 @@ test('refusing a network switch or lacking funds prevents payment', async () => 
   await assert.rejects(approvePayment(wallet, quote), /Rejected/);
   await assert.rejects(approvePayment({ request: assert.fail }, { ...quote, canPay: false }), /Insufficient/);
   await assert.rejects(approvePayment({ request: assert.fail }, { ...quote, chainId: 8453 }), /Unsupported/);
+});
+
+
+test('ETH amounts preserve wei precision and reject ambiguous input', () => {
+  assert.equal(parseTransferAmount('0.000000000000000001'), 1n);
+  assert.equal(parseTransferAmount('1.234567890123456789'), 1234567890123456789n);
+  for (const amount of ['0', '-1', '1e-3', '01', '.1', '1.', '0.0000000000000000001', '1,000', '', '9'.repeat(80)]) {
+    assert.throws(() => parseTransferAmount(amount));
+  }
+});
+
+test('a changed or disconnected wallet cannot send a reviewed transfer', async () => {
+  for (const accounts of [[], [quote.payee]]) {
+    await assert.rejects(approvePayment({ async request({ method }) {
+      if (method === 'eth_chainId') return '0x14a34';
+      if (method === 'eth_accounts') return accounts;
+      assert.fail('Must not send from another account');
+    } }, quote), /Wallet account changed/);
+  }
 });

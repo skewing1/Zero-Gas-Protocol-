@@ -6,12 +6,12 @@ const hash = /^0x[0-9a-f]{64}$/i;
 const quantity = value => '0x' + value.toString(16);
 const same = (left, right) => typeof left === 'string' && left.toLowerCase() === right.toLowerCase();
 
-export function createMerchant(rpc, { payee, amountWei, chainId, estimateFees, actualOperatorFee }) {
-  if (!address.test(payee) || BigInt(payee) === 0n || amountWei <= 0n) throw new Error('Invalid transfer configuration');
+export function createMerchant(rpc, { payee: defaultPayee, amountWei: defaultAmount, chainId, estimateFees, actualOperatorFee }) {
   const quotes = new Map();
 
   return {
-    async quote(payer) {
+    async quote(payer, { payee = defaultPayee, amountWei = defaultAmount } = {}) {
+      if (!address.test(payee) || BigInt(payee) === 0n || typeof amountWei !== 'bigint' || amountWei <= 0n || amountWei >= 2n ** 256n) throw new Error('Invalid recipient or amount');
       if (!address.test(payer) || BigInt(payer) === 0n || same(payer, payee)) throw new Error('Invalid payer');
       const [network, block, code, price, balance] = await Promise.all([
         rpc('eth_chainId'), rpc('eth_getBlockByNumber', 'latest', false),
