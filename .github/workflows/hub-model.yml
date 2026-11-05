@@ -22,7 +22,7 @@ jobs:
       - run: bash scripts/hub/install-sp1.sh
       - name: Compile root-bound guest (not a proof or savings benchmark)
         working-directory: hub
-        run: PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program
+        run: PATH="$PWD/.tools/bin:$PATH" cargo +1.88.0 prove build --locked -p hub-auth-program
       - name: Build real SP1 execution runner
         run: cargo +1.88.0 build --release --locked --manifest-path hub/Cargo.toml -p hub-execute
         env:

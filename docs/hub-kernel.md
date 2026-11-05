@@ -92,7 +92,7 @@ cargo +1.88.0 test --locked --manifest-path hub/Cargo.toml -p hub-kernel
 npm --prefix node ci
 node scripts/hub/batch-vectors.mjs --check
 bash scripts/hub/install-sp1.sh
-(cd hub && PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program)
+(cd hub && PATH="$PWD/.tools/bin:$PATH" cargo +1.88.0 prove build --locked -p hub-auth-program)
 cargo +1.88.0 build --release --locked --manifest-path hub/Cargo.toml -p hub-execute
 python3 scripts/hub/check-execution.py
 ```
@@ -106,3 +106,8 @@ sp1-contracts and Helios are not installed or verified. Deposits, MPT/finality
 evidence, forced requests, canonical freeze/exit contracts and blob binding remain
 required. Real proofs on adequate hardware and complete multi-chain receipt
 benchmarks are necessary before any 90%/99% hub decision can be made.
+
+The Cargo driver for the guest build is explicitly pinned as well. A CI run with
+an unpinned newer Cargo emitted `--remap-path-scope=object`, which the pinned
+SP1 compiler rejected. Use `cargo +1.88.0 prove build`; merely installing Rust
+1.88.0 does not select it as the driver. The failed run did not execute the guest.
