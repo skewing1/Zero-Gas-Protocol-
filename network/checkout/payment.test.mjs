@@ -5,7 +5,7 @@ import { approvePayment, paymentTransaction, parseTransferAmount } from './payme
 const quote = {
   chainId: 84532, payer: '0x0000000000000000000000000000000000000001',
   payee: '0x0000000000000000000000000000000000000002',
-  value: '0x1', id: '0x0123456789abcdef0123456789abcdef', canPay: true,
+  value: '0x1', nonce: '0x0', id: '0x0123456789abcdef0123456789abcdef', canPay: true,
 };
 
 test('a connected Base Sepolia wallet sends only the quoted transaction', async () => {
@@ -14,6 +14,7 @@ test('a connected Base Sepolia wallet sends only the quoted transaction', async 
     async request({ method, params }) {
       if (method === 'eth_chainId') return '0x14a34';
       if (method === 'eth_accounts') return [quote.payer];
+      if (method === 'eth_getTransactionCount') return quote.nonce;
       assert.equal(method, 'eth_sendTransaction');
       assert.deepEqual(params, [paymentTransaction(quote)]);
       sends++;
@@ -33,6 +34,7 @@ test('an unknown testnet is added and selected before sending', async () => {
       methods.push(method);
       if (method === 'eth_chainId') return chain;
       if (method === 'eth_accounts') return [quote.payer];
+      if (method === 'eth_getTransactionCount') return quote.nonce;
       if (method === 'wallet_switchEthereumChain') {
         assert.equal(params[0].chainId, '0x14a34');
         if (!added) throw Object.assign(new Error('Unknown chain'), { code: 4902 });
@@ -46,7 +48,7 @@ test('an unknown testnet is added and selected before sending', async () => {
       }
     },
   }, quote);
-  assert.deepEqual(methods.filter(method => !['eth_chainId', 'eth_accounts'].includes(method)), [
+  assert.deepEqual(methods.filter(method => !['eth_chainId', 'eth_accounts', 'eth_getTransactionCount'].includes(method)), [
     'wallet_switchEthereumChain', 'wallet_addEthereumChain',
     'wallet_switchEthereumChain', 'eth_sendTransaction',
   ]);
@@ -82,4 +84,17 @@ test('a changed or disconnected wallet cannot send a reviewed transfer', async (
       assert.fail('Must not send from another account');
     } }, quote), /Wallet account changed/);
   }
+});
+
+
+test('direct transfer has empty calldata and a changed nonce prevents sending', async () => {
+  assert.equal(paymentTransaction(quote).data, '0x');
+  assert.equal(paymentTransaction(quote).chainId, '0x14a34');
+  assert.equal(paymentTransaction(quote).nonce, quote.nonce);
+  await assert.rejects(approvePayment({ async request({method}) {
+    if (method === 'eth_chainId') return '0x14a34';
+    if (method === 'eth_accounts') return [quote.payer];
+    if (method === 'eth_getTransactionCount') return '0x1';
+    assert.fail('Must not replace another transaction');
+  } }, quote), /nonce changed/);
 });

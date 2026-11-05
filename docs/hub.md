@@ -157,10 +157,11 @@ and the time to collect signatures remain outside the gas measurement.
 
 Run `anvil --hardfork prague` and then `node network/checkout/server.mjs`.
 Open http://127.0.0.1:8080 with a local development wallet on chain 31337.
-The demo quotes a 0.001 ETH transfer to the second Anvil account. Review the
+Enter the recipient and ETH amount for each transfer. Review the
 amount and estimated fee, then approve one transfer. The wallet shows the final
-fee before approval. The receiver service matches the mined transaction to a random
-16-byte quote identifier, payer, payee, amount, chain and quote window.
+fee before approval. The verifier matches the mined transaction to its payer, payee, amount,
+chain, nonce and quote window. Quote identifiers remain off-chain; transaction
+calldata is empty.
 The quote store is in memory and verification checks the currently canonical
 block with one mined confirmation. This demo reports whether the transfer has been mined. Production services
 need persistent transaction records and a finality policy.
@@ -170,9 +171,8 @@ to benchmark the same transfer code using a local RPC wallet adapter.
 The benchmark resets Anvil between paths, checks final principal and rejects
 a transaction presented for a different quote. The synthetic merchant workloads
 and measured results are in `bench/direct-checkout-results.md`. Raw receipts,
-quotes and transaction inputs are emitted as a CI artifact. Random identifiers
-can contain different numbers of zero bytes, causing small gas differences
-between runs.
+quotes and transaction inputs are emitted as a CI artifact. The runner records exact receipts; reviewed transfers are checked against
+the plain-transfer baseline with no added execution gas.
 
 ### Merchant feasibility screen
 
@@ -265,5 +265,6 @@ list. Durable publication and operations are not yet measured.
 The same run tests user-selected recipient/amount quotes through the wallet
 helper, sends actual local transactions, rejects receipts for a different
 quote, and reconciles the displayed network fee to each receipt. The quote
-ID adds calldata gas; this direct route claims no protocol gas savings.
+ID remains off-chain, so the direct route adds no calldata gas. It claims no
+protocol savings over a plain transfer on the same chain.
 Local results do not establish public-network or platform-wide savings.

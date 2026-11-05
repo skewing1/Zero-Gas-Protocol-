@@ -12,7 +12,9 @@ export async function operatorFee(rpc, gas, block) {
 }
 
 export async function estimateBaseFees(rpc, tx, gas, price, block, chainId) {
-  const nonce = Number(BigInt(await rpc('eth_getTransactionCount', tx.from, block)));
+  const pendingNonce = BigInt(tx.nonce ?? await rpc('eth_getTransactionCount', tx.from, block));
+  if (pendingNonce > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Nonce exceeds serialization range');
+  const nonce = Number(pendingNonce);
   const unsigned = serializeTransaction({
     type: 'eip1559', chainId, nonce, gas, to: tx.to, value: BigInt(tx.value), data: tx.data,
     maxFeePerGas: price, maxPriorityFeePerGas: price,

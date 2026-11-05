@@ -1,0 +1,23 @@
+{
+  "evidenceType": "RPC simulation, not a transaction receipt",
+  "chainId": 42220,
+  "sender": "0x65097a87aBf8B8da92830333e9C8DdCE7E586f99",
+  "recipient": "0x000000000000000000000000000000000000bEEF",
+  "asset": "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
+  "feeCurrency": "0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B",
+  "amount": "10000",
+  "estimatedGas": "192606",
+  "gasLimit": "231128",
+  "estimatedFeeMicroUsdc": "2861",
+  "maxFeeReserveMicroUsdc": "6909",
+  "userFeeCapMicroUsdc": "10000",
+  "senderUsdc": "108379",
+  "senderNative": "0",
+  "block": {
+    "number": "0x4e34c82",
+    "hash": "0x747c17b73d34f24a425c87e45f7398a534a2f8efd190a81278465a5a1e07a1d1",
+    "timestamp": "0x6aecd4d8"
+  },
+  "walletRequirement": "CIP-64 capable signer; a generic wallet may discard feeCurrency",
+  "mode": "read-only-mainnet-quote"
+}

@@ -14,11 +14,11 @@ This pilot requires unanimous participant signatures and off-chain payment-list 
 
 | Workload | Reviewed-transfer gas | Extra gas vs plain P0 | Receipt fee reconciliation |
 | --- | ---: | ---: | --- |
-| unique-payers-unique-payees | 432800 | 12800 | PASS |
-| peer-ring-repeated | 4327730 | 127730 | PASS |
-| mixed-peer-network | 4327520 | 127520 | PASS |
-| all-peers-once-per-pair | 8222450 | 242450 | PASS |
+| unique-payers-unique-payees | 420000 | 0 | PASS |
+| peer-ring-repeated | 4200000 | 0 | PASS |
+| mixed-peer-network | 4200000 | 0 | PASS |
+| all-peers-once-per-pair | 7980000 | 0 | PASS |
 
-The reviewed-transfer route uses user-selected recipients and amounts. Each transaction includes a random 16-byte quote ID; its calldata costs gas, so this route claims no protocol saving. Quote IDs make its gas vary slightly across runs; raw receipts are retained.
+The reviewed-transfer route uses user-selected recipients and amounts. Quote IDs remain off-chain. Verification checks the payer, payee, amount, transaction nonce, empty calldata and canonical mined block. This route matches plain-transfer execution cost and claims no saving over plain transfers on the same chain.
 
 Fresh recipients, ERC-20, public networks, validity proofs, and the complete proposed system remain unmeasured here. These rows cannot establish platform-wide 90–99% savings.

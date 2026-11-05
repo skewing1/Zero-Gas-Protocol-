@@ -1,5 +1,5 @@
 export function paymentTransaction(quote) {
-  return { from: quote.payer, to: quote.payee, value: quote.value, data: quote.id };
+  return { chainId: '0x' + BigInt(quote.chainId).toString(16), from: quote.payer, to: quote.payee, value: quote.value, data: '0x', nonce: quote.nonce };
 }
 
 export function parseTransferAmount(value) {
@@ -45,5 +45,7 @@ export async function approvePayment(wallet, quote) {
   if (typeof account !== 'string' || account.toLowerCase() !== quote.payer.toLowerCase()) {
     throw new Error('Wallet account changed. Review the transfer again.');
   }
+  const nonce = await wallet.request({ method: 'eth_getTransactionCount', params: [quote.payer, 'pending'] });
+  if (BigInt(nonce) !== BigInt(quote.nonce)) throw new Error('Wallet nonce changed. Review the transfer again.');
   return wallet.request({ method: 'eth_sendTransaction', params: [paymentTransaction(quote)] });
 }

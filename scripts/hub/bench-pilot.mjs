@@ -126,6 +126,7 @@ async function bench(accounts, operator, reuse, counterparties, workload) {
         const txHash = await approvePayment({ async request({ method, params }) {
           if (method === 'eth_chainId') return rpc(method);
           if (method === 'eth_accounts') return [from];
+          if (method === 'eth_getTransactionCount') return rpc(method, ...params);
           assert.equal(method, 'eth_sendTransaction');
           const [tx] = params;
           const row = await send('reviewed-transfer', tx.from, tx.to, BigInt(tx.value), tx.data);
@@ -142,6 +143,7 @@ async function bench(accounts, operator, reuse, counterparties, workload) {
   }
   const p0 = await direct(payments);
   const reviewedTransfer = transactors ? await direct(payments, true) : undefined;
+  if (reviewedTransfer) assert.equal(reviewedTransfer.summary.gas, p0.summary.gas, 'Reviewed transfer must not add gas over P0');
   // When every pair is unique, P0 and P0-net specify identical transactions in
   // identical order. One receipt set measures both paths.
   const p0Net = net.length === payments.length ? p0 : await direct(net);
@@ -277,6 +279,7 @@ async function benchCheckout(shoppers, payees, visits, operator) {
         async request({ method, params }) {
           if (method === 'eth_chainId') return rpc(method);
           if (method === 'eth_accounts') return [from];
+          if (method === 'eth_getTransactionCount') return rpc(method, ...params);
           assert.equal(method, 'eth_sendTransaction');
           const [tx] = params;
           const row = await send('checkout', tx.from, tx.to, BigInt(tx.value), tx.data);
@@ -368,7 +371,7 @@ async function runCheckout(accounts, client, operator) {
   const lines = [
     '# Direct ETH checkout benchmark', '',
     `Local Prague receipts from ${client}. These are synthetic shopper-to-merchant workloads with no customer-to-customer payments.`,
-    'A checkout quote specifies the price, estimated network fee, chain and destination wallet. The wallet sends one transfer with a 16-byte quote identifier. The merchant verifies the mined transaction against that quote.',
+    'A checkout quote specifies the price, estimated network fee, chain and destination wallet. The wallet sends one plain transfer with empty calldata and the reviewed nonce. The merchant verifies the mined transaction against that quote.',
     'P0 uses one plain ETH transfer per purchase. P0-net uses one plain ETH transfer per shopper/merchant pair over the entire window. All three finish with equivalent fee-adjusted wallet balances.',
     'P0-net combines purchases into one later settlement. The checkout path confirms purchases individually as transactions are mined.',
     '',
@@ -380,7 +383,9 @@ async function runCheckout(accounts, client, operator) {
     'No contract deployment, deposits or withdrawals are required. Results cover local transaction costs. Wallet interaction time, merchant hosting costs, and public-network fees are unmeasured.', '',
   ];
   mkdirSync('bench', { recursive: true });
-  writeFileSync('bench/direct-checkout-results.json', JSON.stringify({ client, chainId, results }, null, 2));
+  const checkoutRaw = JSON.stringify({ client, chainId, results }, null, 2);
+  writeFileSync('bench/direct-checkout-results.json', checkoutRaw);
+  writeFileSync('bench/direct-checkout-results.json.gz', gzipSync(checkoutRaw));
   writeFileSync('bench/direct-checkout-results.md', lines.join('\n'));
   console.log(lines.join('\n'));
 }
@@ -417,7 +422,7 @@ async function runTransactors(accounts, operator, client) {
     '| Workload | Reviewed-transfer gas | Extra gas vs plain P0 | Receipt fee reconciliation |',
     '| --- | ---: | ---: | --- |',
     ...results.map(r => `| ${r.scenario} | ${r.reviewedTransfer.summary.gas} | ${r.reviewedTransfer.summary.gas - r.p0.summary.gas} | PASS |`), '',
-    'The reviewed-transfer route uses user-selected recipients and amounts. Each transaction includes a random 16-byte quote ID; its calldata costs gas, so this route claims no protocol saving. Quote IDs make its gas vary slightly across runs; raw receipts are retained.', '',
+    'The reviewed-transfer route uses user-selected recipients and amounts. Quote IDs remain off-chain. Verification checks the payer, payee, amount, transaction nonce, empty calldata and canonical mined block. This route matches plain-transfer execution cost and claims no saving over plain transfers on the same chain.', '',
     'Fresh recipients, ERC-20, public networks, validity proofs, and the complete proposed system remain unmeasured here. These rows cannot establish platform-wide 90–99% savings.', '',
   ].join('\n');
   mkdirSync('bench', { recursive: true });
