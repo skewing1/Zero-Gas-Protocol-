@@ -1,0 +1,13 @@
+{"sp1Version":"5.2.4","positiveCases":1,"negativeCases":3,"publicValuesMatch":true,"riscvCycles":23030539,"elfKeccak256":"0x7d15394b3a61df57881f4220eddd37ace459b4efddd6fa8583017ba7fd0b00ff","proofGenerated":false}
+stderr: 
+stderr: thread '<unnamed>' (1) panicked at program/src/main.rs:9:73:
+stderr: invalid batch: "old root"
+stderr: note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+stderr: 
+stderr: thread '<unnamed>' (1) panicked at program/src/main.rs:9:73:
+stderr: invalid batch: "recovery id"
+stderr: note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+stderr: 
+stderr: thread '<unnamed>' (1) panicked at program/src/main.rs:9:73:
+stderr: invalid batch: "expired"
+stderr: note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

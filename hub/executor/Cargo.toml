@@ -1,0 +1,9 @@
+[package]
+name = "hub-execute"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+hub-kernel = { path = "../kernel" }
+k256 = { version = "=0.13.4", features = ["ecdsa"] }
+sp1-core-executor = "=5.2.4"
+sp1-stark = "=5.2.4"

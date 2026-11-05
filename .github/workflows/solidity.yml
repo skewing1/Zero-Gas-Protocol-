@@ -42,6 +42,8 @@ jobs:
         run: npm --prefix node ci
       - name: Test records, transfer quotes and route selection
         run: node --test network/records.test.mjs network/checkout/*.test.mjs network/low-fee/*.test.mjs
+      - name: Cross-check batch commitment vectors
+        run: node scripts/hub/batch-vectors.mjs --check
       - name: Run receipt benchmarks twice
         run: |
           anvil --chain-id 31337 --hardfork prague --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &

@@ -1,4 +1,5 @@
-//! Signed-transfer kernel only. Not yet an authenticated state-tree transition.
+//! Signed transfers and root-bound batch transitions. Settlement, evidence and DA are not implemented.
+pub mod batch;
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ pub struct Transfer {
     pub service_id: Hash,
     pub manifest_hash: Hash,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Domain {
     pub chain_id: U256,
     pub hub: Address,
@@ -104,6 +105,21 @@ impl State {
         fee_recipient: Address,
         now: u64,
     ) -> Result<(), &'static str> {
+        let mut next = self.clone();
+        next.apply_in_place(d, t, sig, fee_recipient, now)?;
+        *self = next;
+        Ok(())
+    }
+
+    // Caller owns rollback: public single-transfer and batch APIs use a private copy.
+    fn apply_in_place(
+        &mut self,
+        d: &Domain,
+        t: &Transfer,
+        sig: &[u8],
+        fee_recipient: Address,
+        now: u64,
+    ) -> Result<(), &'static str> {
         if now > t.deadline {
             return Err("expired");
         }
@@ -122,17 +138,14 @@ impl State {
         if signer(digest(d, t), sig)? != t.from {
             return Err("signer");
         }
-        // Copy-on-success makes fee failure/overflow atomic, including self-payments.
-        let mut next = self.clone();
-        next.debit(t.from, t.asset_id, t.amount)?;
-        next.debit(t.from, t.fee_asset_id, t.fee)?;
-        next.credit(t.to, t.asset_id, t.amount)?;
-        next.credit(fee_recipient, t.fee_asset_id, t.fee)?;
-        next.nonces.insert(
+        self.debit(t.from, t.asset_id, t.amount)?;
+        self.debit(t.from, t.fee_asset_id, t.fee)?;
+        self.credit(t.to, t.asset_id, t.amount)?;
+        self.credit(fee_recipient, t.fee_asset_id, t.fee)?;
+        self.nonces.insert(
             t.from,
             nonce.checked_add(U256::one()).ok_or("nonce overflow")?,
         );
-        *self = next;
         Ok(())
     }
 }

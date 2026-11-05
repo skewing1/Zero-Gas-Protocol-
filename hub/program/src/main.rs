@@ -1,20 +1,11 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
-use hub_kernel::{digest, Address, Domain, State, Transfer};
+use hub_kernel::batch::{apply_batch, BatchInput};
 pub fn main() {
-    // Authentication-kernel smoke program, NOT a hub batch proof. State,
-    // fee recipient and time are witness inputs, not yet authenticated by roots.
-    let (mut state, domain, transfer, sig, recipient, now): (
-        State,
-        Domain,
-        Transfer,
-        Vec<u8>,
-        Address,
-        u64,
-    ) = sp1_zkvm::io::read();
-    state
-        .apply(&domain, &transfer, &sig, recipient, now)
-        .expect("invalid transfer");
-    sp1_zkvm::io::commit_slice(&digest(&domain, &transfer));
-    sp1_zkvm::io::commit(&state);
+    // Root-bound transition prototype. No settlement contract consumes this ELF.
+    // Chain authentication, deposits, exits and data availability remain absent.
+    let mut input: BatchInput = sp1_zkvm::io::read();
+    let public =
+        apply_batch(&mut input.state, &input.context, &input.transfers).expect("invalid batch");
+    sp1_zkvm::io::commit_slice(&public.abi_encode());
 }

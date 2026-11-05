@@ -1,11 +1,11 @@
-name: Hub escape reference model
+name: Hub model and SP1 batch execution
 on:
   push:
     branches: [multichain-hub-v0]
   pull_request:
 jobs:
   model:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -13,13 +13,27 @@ jobs:
           node-version: '20.19.4'
       - run: node --test hub/model/escape.test.mjs hub/spec/exit-safety.test.mjs
   kernel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: rustup toolchain install 1.88.0 --profile minimal
       - run: cargo +1.88.0 test --locked --manifest-path hub/Cargo.toml -p hub-kernel
       - run: bash scripts/hub/install-sp1.sh
-      - name: Compile authentication guest (not a proof or savings benchmark)
+      - name: Compile root-bound guest (not a proof or savings benchmark)
         working-directory: hub
         run: PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program
+      - name: Build real SP1 execution runner
+        run: cargo +1.88.0 build --release --locked --manifest-path hub/Cargo.toml -p hub-execute
+        env:
+          CARGO_BUILD_JOBS: '2'
+      - name: Execute valid and invalid batches in SP1 (not proof generation)
+        run: python3 scripts/hub/check-execution.py
+      - name: Upload execution evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hub-sp1-execution
+          path: |
+            bench/hub-execution-results.json
+            bench/hub-execution.log
+          if-no-files-found: error

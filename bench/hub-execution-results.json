@@ -1,0 +1,18 @@
+{
+  "sp1Version": "5.2.4",
+  "positiveCases": 1,
+  "negativeCases": 3,
+  "publicValuesMatch": true,
+  "riscvCycles": 23030539,
+  "elfKeccak256": "0x7d15394b3a61df57881f4220eddd37ace459b4efddd6fa8583017ba7fd0b00ff",
+  "proofGenerated": false,
+  "evidence": "SP1 5.2.4 RISC-V executor run_fast; not a cryptographic proof or EVM gas benchmark",
+  "elapsedSecondsAllFourFixtures": 1.082036,
+  "peakChildRssBytes": 10616832,
+  "elfSha256": "052d8dd47928771d5f7805603ec478dc932072be6825c02ec76745670c5b3d08",
+  "machine": "x86_64",
+  "memoryLimitBytes": "8589934592",
+  "cpuQuota": "800000 100000",
+  "hubSavings": "NOT MEASURED",
+  "groth16ProvingTime": "NOT MEASURED"
+}

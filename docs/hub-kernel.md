@@ -1,65 +1,108 @@
-# Hub authentication kernel — build record
+# Hub batch kernel — implementation and build record
 
-This is a component, not an end-to-end hub or a gas benchmark.
+This is a component, not an end-to-end hub or a gas-savings benchmark.
 
 ## Implemented
 
-Rust EIP-712 hashing and secp256k1 recovery; uint256 balances, amounts, fees and
-nonces; distinct origin asset IDs; atomic amount+fee accounting; replay, deadline,
-domain and frozen-asset checks. Signature malleability is rejected (low-s only).
-The signed transfer fee is exact, not an unsigned operator-supplied amount.
+The Rust kernel checks EIP-712 hashes and secp256k1 signatures, uint256 balances,
+exact signed fees, nonces, deadlines, domain separation and frozen assets. Asset
+IDs remain distinct by origin. Signature malleability is rejected (low-s only).
 
-The SP1 guest calls the same kernel. Its state, time and fee-recipient inputs are
-not yet authenticated against canonical state. Therefore its output MUST NOT be
-accepted by a settlement or portal contract. No contracts consume this program.
-It uses ordinary k256; SP1 accelerated signature patches remain unintegrated.
+The new batch transition checks the complete supplied state against a declared
+old root, processes signed transfers atomically and commits a new root. It makes
+one private state copy per batch rather than one full copy per transfer. Any
+invalid transfer discards the whole batch's changes; individual `State::apply`
+keeps its existing atomic semantics.
 
-Seven native Rust tests pass. One digest vector was independently generated with
-viem 2.38.6 and matched Rust. This is not the complete differential-vector suite.
-The guest compiles to the SP1 RISC-V ELF. Compilation is not SP1 execution or
-proving. No Groth16 proof or proving time has been measured.
+Accounts are committed in a depth-32 keccak sparse tree. The path is the first
+32 bits of keccak(0x10 || address). A leaf is a sorted collision bucket containing
+the complete hashed keys and account commitments. Two addresses with the same
+path cannot overwrite each other. Each account commitment contains its address,
+nonce and sorted nonzero per-asset balances. Zero entries normalize to absence.
+Frozen-asset IDs are committed separately into the final state root.
 
-## Pinned tools and verified download provenance
+This implementation requires the complete state as witness and recomputes both
+roots. It is not a scalable sparse multiproof implementation. It uses ordinary
+k256; SP1-accelerated signature patches remain unintegrated. Neither a depth-32
+account path nor compilation is used to imply cheap proving.
 
-| Component | Pin | Release date | Source |
-|---|---|---|---|
-| Host Rust | 1.88.0 | 2025-06-26 | rustup toolchain metadata |
-| SP1 CLI / guest | 5.2.4 | 2025-12-15 | https://github.com/succinctlabs/sp1/releases/tag/v5.2.4 |
-| SP1 Rust | succinct-1.91.1 | 2025-11-14 | https://github.com/succinctlabs/rust/releases/tag/succinct-1.91.1 |
+## Public values and required settlement checks
 
-The Linux x86_64 release asset SHA-256 values were checked against GitHub release
-metadata and are enforced by scripts/hub/install-sp1.sh. The CLI's standard
-installer failed with UnknownIssuer here. Downloading the same pinned toolchain
-using curl with normal TLS verification succeeded; certificate validation was
-not disabled. All Rust dependencies are resolved in hub/Cargo.lock; direct crypto
-and serialization versions are exact in the manifests.
+The guest emits 320 bytes, ABI encoded as:
 
-sp1-contracts and Helios are not installed or verified. Do not infer a compatible
-on-chain verifier, security review or production readiness from the compiler pin.
+```solidity
+(uint32 version, bytes32 oldRoot, bytes32 newRoot, uint256 chainId,
+ address hub, address feeRecipient, uint64 batchTime, uint64 minDeadline,
+ bytes32 receiptsRoot, uint32 transferCount)
+```
 
-## Reproduction
+Receipts bind the declared root, chain/domain, fee recipient, batch time, transfer
+order and signed transfer digest. The public values are deterministic for the
+same input. Batch size is capped at 10,000 as a prototype resource limit.
 
-On Linux x86_64 with rustup installed:
+**The declared root is not yet authenticated to an actual chain.** A future
+settlement contract must compare oldRoot to its stored canonical root, require
+the correct chainId and hub address, enforce version, require batchTime <= block.timestamp, and reject
+submission after minDeadline. A first-prover fee market also needs to bind
+feeRecipient to the submitting prover. It must also enforce the current canonical freeze
+commitment, deposit/forced cursors and data availability. The program cannot
+learn canonical chain time or state just because those values are witness inputs.
+No contract currently consumes this ELF or these public values. Do not use it
+to accept payments, release portal assets or claim production proof security.
+
+## Verification completed
+
+- 19 native Rust tests pass, including forged/incomplete state, invalid late
+  transfers, replay/domain checks, root normalization, collision buckets,
+  per-origin fee accounting, frozen assets and receipt order.
+- An independent viem 2.38.6 implementation generates the old/new roots,
+  receipts root, collision root and complete ABI output. Its vectors match Rust.
+- The guest compiles to the SP1 RISC-V ELF.
+- The real SP1 5.2.4 RISC-V executor accepts a two-transfer batch and emits exactly
+  the native Rust public bytes. It rejects a false state witness, a malformed
+  signature and an expired batch. This is execution, not a cryptographic proof.
+
+The recorded run is in `bench/hub-execution-results.json`. Its wall time and peak
+RSS cover one successful and three expected-failure fixtures, not a throughput
+benchmark or proving time. RISC-V cycle counts are not Ethereum gas.
+
+Groth16 proof generation, verifier deployment, all on-chain hub gas, blob DA and
+full deposit-to-exit costs remain NOT MEASURED. No mock proof stands in for them.
+
+## Pins and provenance
+
+| Component | Pin | Source |
+|---|---|---|
+| Host Rust | 1.88.0 | rustup release metadata; released 2025-06-26 |
+| SP1 CLI, guest, executor, stark | 5.2.4 | https://github.com/succinctlabs/sp1/releases/tag/v5.2.4 |
+| SP1 Rust | succinct-1.91.1 | https://github.com/succinctlabs/rust/releases/tag/succinct-1.91.1 |
+| Independent encoding | viem 2.38.6 | repository's locked Node dependency |
+
+Release asset SHA-256 checks are enforced by `scripts/hub/install-sp1.sh`, using
+normal TLS verification. Rust dependencies are locked in `hub/Cargo.lock`; direct
+dependencies are exact. The runner uses SP1's official core executor in run_fast
+mode, without proof generation or trace/proving-cost estimates. No network prover,
+private key, signing service, chain transaction or public deployment is involved.
+
+## Reproduce
 
 ```sh
 rustup toolchain install 1.88.0 --profile minimal
 cargo +1.88.0 test --locked --manifest-path hub/Cargo.toml -p hub-kernel
+npm --prefix node ci
+node scripts/hub/batch-vectors.mjs --check
 bash scripts/hub/install-sp1.sh
-cd hub
-PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program
+(cd hub && PATH="$PWD/.tools/bin:$PATH" cargo prove build --locked -p hub-auth-program)
+cargo +1.88.0 build --release --locked --manifest-path hub/Cargo.toml -p hub-execute
+python3 scripts/hub/check-execution.py
 ```
 
-Local resource check: x86_64; cgroup memory limit 8,589,934,592 bytes (8 GiB),
-CPU quota 800000/100000 (8 CPUs), no detected NVIDIA device. SP1's official
-project template states at least 16 GB RAM for Groth16/PLONK generation:
-https://github.com/succinctlabs/sp1-project-template . No proof attempt was made
-on an undersized machine, and no mock proof substitutes for a real measurement.
+Local hardware: x86_64, 8 GiB cgroup memory, 8-CPU quota, no detected NVIDIA
+hardware. No Groth16 attempt was made. The official SP1 project template states
+at least 16 GB RAM for Groth16/PLONK generation:
+https://github.com/succinctlabs/sp1-project-template .
 
-## Required next gates
-
-Authenticate state with the specified tree, bind domain/time/fee recipient to
-public settlement context, integrate deposit and exit accounting, and bind
-replayable batch data to actual EIP-4844 blobs. Then run SP1 execution and real
-Groth16 generation on sufficient hardware, deploy the matching verifier locally,
-and collect complete deposit-to-withdrawal receipts. Until then all hub savings,
-minimum batch sizes, break-even prices and proving costs remain NOT MEASURED.
+sp1-contracts and Helios are not installed or verified. Deposits, MPT/finality
+evidence, forced requests, canonical freeze/exit contracts and blob binding remain
+required. Real proofs on adequate hardware and complete multi-chain receipt
+benchmarks are necessary before any 90%/99% hub decision can be made.
