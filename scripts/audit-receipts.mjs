@@ -30,8 +30,8 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
         if (uint(r.feeWei, 'receipt.feeWei') !== BigInt(expected)) throw new Error('Receipt fee mismatch: ' + r.hash);
       }
       const actual = allInCost({ receipts: settlement.map(toReceipt),
-        amortizedDeploymentWei: allInCost({ receipts: deployment.map(toReceipt) }).totalWei,
-        ...overhead[p.path] });
+        ...(overhead[p.path] ?? {}),
+        amortizedDeploymentWei: allInCost({ receipts: deployment.map(toReceipt) }).totalWei });
       if (uint(p.feeWei, 'path.feeWei') !== BigInt(allInCost({ receipts: settlement.map(toReceipt) }).totalWei))
         throw new Error('Path fee mismatch: ' + p.path);
       if (uint(p.deployment.feeWei, 'deployment.feeWei') !== BigInt(allInCost({ receipts: deployment.map(toReceipt) }).totalWei))
