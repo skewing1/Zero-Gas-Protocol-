@@ -29,3 +29,12 @@ test('rejects missing comparison and unknown stages',()=>{
  const g=groups();g[0].paths[1].receipts[1].stage='unknown';
  assert.throws(()=>auditGroups(g),/Unknown receipt stage/);
 });
+
+test('caller overhead cannot overwrite measured deployment fees',()=>{
+ const g=groups();
+ g[0].paths[1]=path('P1-net',50,50);
+ const [r]=auditGroups(g,{overhead:{'P1-net':{amortizedDeploymentWei:'0',relayerWei:'10'}}});
+ assert.equal(r.candidateWei,'210');
+ assert.equal(r.savingsBasisPoints,'-500');
+ assert.equal(r.meets45Percent,false);
+});
