@@ -1,17 +1,18 @@
-// Exact integer fee accounting. No price oracle or live network assumptions.
-// Monetary values are nonnegative integer wei encoded as decimal strings.
+// Exact integer fee accounting. Accepts canonical decimal strings and JSON-RPC hex quantities.
+// All monetary outputs are decimal wei strings; no exchange-rate assumptions.
 const uint = (value, name) => {
-  if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value))
-    throw new TypeError(`${name} must be a canonical nonnegative decimal integer string`);
+  if (typeof value !== 'string' || !(/^(0|[1-9][0-9]*)$/.test(value) || /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value)))
+    throw new TypeError(`${name} must be a canonical nonnegative decimal string or JSON-RPC hex quantity`);
   return BigInt(value);
 };
-const total = (rows, key) => rows.reduce((sum, row, index) =>
-  sum + uint(row[key] ?? '0', `rows[${index}].${key}`), 0n);
 
 export function receiptCost(receipt) {
-  if (receipt?.status !== '0x1') throw new Error('Only successful mined receipts may be costed');
+  if (!receipt || !['0x1', '1'].includes(receipt.status))
+    throw new Error('Only successful mined receipts may be costed');
   const gas = uint(receipt.gasUsed, 'gasUsed');
   const price = uint(receipt.effectiveGasPrice, 'effectiveGasPrice');
+  // Rollups may expose l1Fee separately; verify the provider has not already
+  // included it in effectiveGasPrice before enabling this accounting.
   const l1 = uint(receipt.l1Fee ?? '0', 'l1Fee');
   const blob = uint(receipt.blobFee ?? '0', 'blobFee');
   return (gas * price + l1 + blob).toString();
@@ -34,8 +35,7 @@ export function compareCosts(baseline, candidate) {
   const base = uint(baseline.totalWei, 'baseline.totalWei');
   const next = uint(candidate.totalWei, 'candidate.totalWei');
   if (base === 0n) throw new RangeError('Baseline cost must be positive');
-  // Signed basis points, truncated toward zero; no floating-point precision loss.
-  const savingsBasisPoints = ((base - next) * 10000n / base);
+  const savingsBasisPoints = (base - next) * 10000n / base;
   return { savingsBasisPoints: savingsBasisPoints.toString(),
     meets45Percent: savingsBasisPoints >= 4500n,
     deltaWei: (base - next).toString() };
