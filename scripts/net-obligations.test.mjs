@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {aggregateObligations} from './net-obligations.mjs';
+const a='0x'+'11'.repeat(20), b='0x'+'22'.repeat(20), c='0x'+'33'.repeat(20), token='0x'+'44'.repeat(20);
+const o=(amount, extra={})=>({payer:a,recipient:b,asset:'native',window:'epoch-1',amount,...extra});
+test('aggregates identical payment destinations',()=>assert.deepEqual(aggregateObligations([o('2'),o('3')]),[{payer:a,recipient:b,asset:'native',window:'epoch-1',amount:'5'}]));
+test('does not combine independent payers',()=>assert.equal(aggregateObligations([o('2'),o('3',{payer:c})]).length,2));
+test('does not combine recipients',()=>assert.equal(aggregateObligations([o('2'),o('3',{recipient:c})]).length,2));
+test('does not combine assets',()=>assert.equal(aggregateObligations([o('2'),o('3',{asset:token})]).length,2));
+test('does not combine settlement windows',()=>assert.equal(aggregateObligations([o('2'),o('3',{window:'epoch-2'})]).length,2));
+test('canonicalizes address case',()=>assert.equal(aggregateObligations([o('2'),o('3',{payer:a.toUpperCase().replace('0X','0x')})]).length,1));
+test('order independent',()=>assert.deepEqual(aggregateObligations([o('2'),o('3',{recipient:c}),o('4')]),aggregateObligations([o('4'),o('2'),o('3',{recipient:c})])));
+test('rejects overflow',()=>assert.throws(()=>aggregateObligations([o(((1n<<256n)-1n).toString()),o('1')]),/exceeds/));
+test('rejects zero and negative amounts',()=>{assert.throws(()=>aggregateObligations([o('0')]));assert.throws(()=>aggregateObligations([o('-1')]));});
+test('rejects floating and noncanonical amounts',()=>{assert.throws(()=>aggregateObligations([o('1.5')]));assert.throws(()=>aggregateObligations([o('01')]));});
+test('rejects invalid addresses and windows',()=>{assert.throws(()=>aggregateObligations([o('1',{payer:'0x1'})]));assert.throws(()=>aggregateObligations([o('1',{window:'../../foo'})]));});
+test('rejects malformed input',()=>{assert.throws(()=>aggregateObligations({}));assert.throws(()=>aggregateObligations([null]));});
+test('empty inputs produce empty output',()=>assert.deepEqual(aggregateObligations([]),[]));
