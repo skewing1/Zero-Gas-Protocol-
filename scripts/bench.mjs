@@ -151,8 +151,8 @@ async function run(workload, asset, path, sender, relayer) {
   assert(initial.every(value => value === BigInt(prefund)), 'Unexpected starting recipient balance');
   const firstBlock = Number(BigInt(await rpc('eth_blockNumber')));
 
-  if (path === 'P0') {
-    for (const { to, amount } of payments) {
+  if (path === 'P0' || path === 'P0-net') {
+    for (const { to, amount } of (path === 'P0-net' ? payouts : payments)) {
       receipts.push(asset === 'native'
         ? await send(sender, to, { value: amount })
         : await send(sender, token, { data: callData('transfer', to, amount) }));
@@ -196,16 +196,17 @@ function markdown(groups) {
   const lines = [
     '# Receipt-based payout benchmarks', '',
     'Totals include approval where required. Deployment is separate. Prefunding is excluded.',
+    'P0-net is the optimized direct-transfer baseline; P0 is unnetted diagnostic only.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
     'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
   ];
   for (const { workload, asset, paths } of groups) {
     lines.push('', `## ${workload} · ${asset}`, '',
-      '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
+      '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0-net | Tx count | Calldata bytes | Blocks to spendable |',
       '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     for (const result of paths) {
-      const { path, gas, feeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
-      lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
+      const { path, gas, feeWei, feePerPaymentWei, feeVsP0NetPercent, txCount, calldataBytes, blocksToSpendable } = result;
+      lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0NetPercent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
@@ -234,13 +235,13 @@ async function main() {
     const workload = { id, prefund, recipients, payments, payouts, tree: await merkle(payments) };
     for (const asset of ['native', 'token']) {
       const paths = [];
-      for (const path of asset === 'native' ? ['P0', 'P1', 'P1-net', 'P2'] : ['P0', 'P1', 'P1-net']) {
+      for (const path of asset === 'native' ? ['P0', 'P0-net', 'P1', 'P1-net', 'P2'] : ['P0', 'P0-net', 'P1', 'P1-net']) {
         const snapshot = await rpc('evm_snapshot');
         try {
           const result = await run(workload, asset, path, sender, relayer);
           if (paths.length) assert.deepEqual(result.finalBalances, paths[0].finalBalances);
-          const baseline = BigInt(paths[0]?.feeWei ?? result.feeWei);
-          result.feeVsP0Percent = (Number((BigInt(result.feeWei) * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
+          const baseline = BigInt((paths.find(row => row.path === 'P0-net') ?? result).feeWei);
+          result.feeVsP0NetPercent = path === 'P0' ? 'N/A' : (Number((BigInt(result.feeWei) * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
           paths.push(result);
         } finally {
           assert(await rpc('evm_revert', snapshot), 'Could not restore Anvil state');
