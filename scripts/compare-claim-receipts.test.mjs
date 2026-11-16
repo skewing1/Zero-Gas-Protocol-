@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {compare} from './compare-claim-receipts.mjs';
+const addr='0x'+'ab'.repeat(20),receipt=(n,g='0x64')=>({transactionHash:'0x'+n.toString(16).padStart(64,'0'),blockHash:'0x'+'ff'.repeat(32),status:'0x1',gasUsed:g,effectiveGasPrice:'0x2'}),costs=()=>Object.fromEntries(['relayerWei','dataWei','proofWei','bridgeWei','infrastructureWei','deploymentWei'].map(k=>[k,'0']));
+const fixture=()=>({chainId:31337,rpcVerified:true,outcomeVerified:true,baseline:{chainId:31337,receipts:[receipt(1,'0x3e8')],costs:costs(),outcomes:{[addr]:'100'}},candidate:{chainId:31337,receipts:[receipt(2,'0x1f4')],costs:costs(),outcomes:{[addr]:'100'}}});
+test('50 percent arithmetic',()=>{const r=compare(fixture());assert.equal(r.savedBasisPoints,'5000');assert.equal(r.passes45Percent,true)});
+test('relayer costs erase savings',()=>{const d=fixture();d.candidate.costs.relayerWei='2000';assert.equal(compare(d).passes45Percent,false)});
+test('different outcomes rejected',()=>{const d=fixture();d.candidate.outcomes[addr]='99';assert.throws(()=>compare(d),/different outcomes/)});
+test('unverified evidence rejected',()=>{const d=fixture();d.rpcVerified=false;assert.throws(()=>compare(d),/independent verification/)});
+test('failed receipt rejected',()=>{const d=fixture();d.candidate.receipts[0].status='0x0';assert.throws(()=>compare(d),/failed receipt/)});
+test('duplicate receipt rejected',()=>{const d=fixture();d.candidate.receipts.push(d.candidate.receipts[0]);assert.throws(()=>compare(d),/duplicate receipt/)});
+test('missing operating costs rejected',()=>{const d=fixture();delete d.candidate.costs.bridgeWei;assert.throws(()=>compare(d),/operating costs/)});
+test('chain mismatch rejected',()=>{const d=fixture();d.candidate.chainId=8453;assert.throws(()=>compare(d),/chain mismatch/)});
+test('blob fees counted',()=>{const d=fixture();d.candidate.receipts[0].blobGasUsed='0x10';d.candidate.receipts[0].blobGasPrice='0x10';assert.equal(compare(d).candidateWei,'1256')});
+test('fee mismatch rejected',()=>{const d=fixture();d.candidate.receipts[0].feeWei='1';assert.throws(()=>compare(d),/fee mismatch/)});
