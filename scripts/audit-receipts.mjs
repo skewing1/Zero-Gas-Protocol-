@@ -73,7 +73,7 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
 if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
   const [file, baseline = 'P0', candidate = 'P1-net'] = process.argv.slice(2);
   if (!file) throw new Error('Usage: node scripts/audit-receipts.mjs bench/results.json [baseline] [candidate]');
-  const results = auditGroups(JSON.parse(readFileSync(file, 'utf8')), { baseline, candidate });
+  // CLI reports are authoritative: missing mined-success evidence is a hard failure.\n  const results = auditGroups(JSON.parse(readFileSync(file, 'utf8')), { baseline, candidate, requireSuccessfulStatus: true });
   console.log(JSON.stringify(results, null, 2));
   if (results.some(row => !row.meets45Percent)) process.exitCode = 2;
 }
