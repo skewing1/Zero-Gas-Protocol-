@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { compareAllIn } from './all-in-comparison.mjs';
 import { blobFeeFromReceipt } from './blob-fee-evidence.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -202,6 +203,7 @@ function markdown(groups) {
     '# Receipt-based payout benchmarks', '',
     'Settlement totals include approvals. All-in receipt fees include settlement, prefunding and deployment; off-chain costs remain excluded.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
+    'All-in receipt savings compare P0 to each path including deployment and prefunding; off-chain costs are not included and this is not a complete economic savings claim.',
     'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, and off-chain operations. Blob and L1 fees are included only when evidenced in receipts.',
   ];
   for (const { workload, asset, paths } of groups) {
@@ -211,6 +213,11 @@ function markdown(groups) {
     for (const result of paths) {
       const { path, gas, feeWei, prefunding, deployment, allInFeeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
       lines.push(`| ${path} | ${gas} | ${feeWei} | ${prefunding.feeWei} | ${deployment.feeWei} | ${allInFeeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
+    }
+    lines.push('', '| Path | All-in receipt savings (basis points) | Exceeds 45% receipt-only |',
+      '| --- | ---: | :---: |');
+    for (const { path, allInComparison } of paths) {
+      lines.push(`| ${path} | ${allInComparison.savingsBps} | ${allInComparison.exceeds45Percent} |`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
@@ -251,6 +258,8 @@ async function main() {
           assert(await rpc('evm_revert', snapshot), 'Could not restore Anvil state');
         }
       }
+      const allInComparison = compareAllIn(paths);
+      for (let i = 0; i < paths.length; i++) paths[i].allInComparison = allInComparison[i];
       groups.push({ workload: id, asset, paths });
       console.log(`${id} ${asset}: ${paths.map(({ path, gas }) => `${path}=${gas}`).join(', ')}`);
     }
