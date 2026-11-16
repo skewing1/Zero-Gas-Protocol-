@@ -56,7 +56,7 @@ async function measure(hash, stage) {
   const zeroBytes = input.filter(byte => byte === 0).length;
   const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0);
   return {
-    stage, hash, from: transaction.from, to: transaction.to,
+    stage, hash, status: receipt.status, from: transaction.from, to: transaction.to,
     gasUsed: Number(BigInt(receipt.gasUsed)),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
