@@ -187,6 +187,8 @@ async function run(workload, asset, path, sender, relayer) {
   const totals = sum(receipts.filter(row => !['deployment', 'prefund'].includes(row.stage)));
   return {
     path, ...totals, deployment, finalBalances: final.map(String),
+    prefunding: sum(receipts.filter(row => row.stage === 'prefund')),
+    allInFeeWei: (BigInt(totals.feeWei) + BigInt(deployment.feeWei) + receipts.filter(row => row.stage === 'prefund').reduce((n, row) => n + BigInt(row.feeWei), 0n)).toString(),
     feePerPaymentWei: (BigInt(totals.feeWei) / BigInt(payments.length)).toString(),
     deploymentGasPerPayment: deployment.gas / payments.length,
     deploymentFeePerPaymentWei: (BigInt(deployment.feeWei) / BigInt(payments.length)).toString(),
@@ -198,17 +200,17 @@ async function run(workload, asset, path, sender, relayer) {
 function markdown(groups) {
   const lines = [
     '# Receipt-based payout benchmarks', '',
-    'Totals include approval where required. Deployment is separate. Prefunding is excluded.',
+    'Settlement totals include approvals. All-in receipt fees include settlement, prefunding and deployment; off-chain costs remain excluded.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
-    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
+    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, and off-chain operations. Blob and L1 fees are included only when evidenced in receipts.',
   ];
   for (const { workload, asset, paths } of groups) {
     lines.push('', `## ${workload} · ${asset}`, '',
-      '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
-      '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+      '| Path | Settlement gas | Settlement fee (wei) | Prefund fee (wei) | Deployment fee (wei) | All-in receipt fee (wei) | Fee per payment (wei) | Fee vs P0 settlement | Tx count | Calldata bytes | Blocks to spendable |',
+      '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     for (const result of paths) {
-      const { path, gas, feeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
-      lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
+      const { path, gas, feeWei, prefunding, deployment, allInFeeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
+      lines.push(`| ${path} | ${gas} | ${feeWei} | ${prefunding.feeWei} | ${deployment.feeWei} | ${allInFeeWei} | ${feePerPaymentWei} | ${feeVsP0Percent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
