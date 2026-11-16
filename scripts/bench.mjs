@@ -183,7 +183,9 @@ async function run(workload, asset, path, sender, relayer) {
   const deployment = sum(receipts.filter(row => row.stage === 'deployment'));
   const totals = sum(receipts.filter(row => !['deployment', 'prefund'].includes(row.stage)));
   return {
-    path, ...totals, deployment, finalBalances: final.map(String),
+    path, ...totals, deployment, prefunding: sum(receipts.filter(row => row.stage === 'prefund')),
+    allInReceiptFeeWei: (BigInt(totals.feeWei) + BigInt(deployment.feeWei) + receipts.filter(row => row.stage === 'prefund').reduce((n, row) => n + BigInt(row.feeWei), 0n)).toString(),
+    finalBalances: final.map(String),
     feePerPaymentWei: (BigInt(totals.feeWei) / BigInt(payments.length)).toString(),
     deploymentGasPerPayment: deployment.gas / payments.length,
     deploymentFeePerPaymentWei: (BigInt(deployment.feeWei) / BigInt(payments.length)).toString(),
@@ -195,10 +197,10 @@ async function run(workload, asset, path, sender, relayer) {
 function markdown(groups) {
   const lines = [
     '# Receipt-based payout benchmarks', '',
-    'Totals include approval where required. Deployment is separate. Prefunding is excluded.',
+    'Settlement totals include approval; all-in receipt totals also include deployment and prefunding.',
     'P0-net is the optimized direct-transfer baseline; P0 is unnetted diagnostic only.',
     'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
-    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
+    'All-in receipt totals exclude unmeasured relayer overhead, signatures, sponsorship, cross-chain settlement and other off-chain costs. Do not claim economic savings from these ratios.',
   ];
   for (const { workload, asset, paths } of groups) {
     lines.push('', `## ${workload} · ${asset}`, '',
@@ -207,6 +209,11 @@ function markdown(groups) {
     for (const result of paths) {
       const { path, gas, feeWei, feePerPaymentWei, feeVsP0NetPercent, txCount, calldataBytes, blocksToSpendable } = result;
       lines.push(`| ${path} | ${gas} | ${feeWei} | ${feePerPaymentWei} | ${feeVsP0NetPercent}% | ${txCount} | ${calldataBytes} | ${blocksToSpendable} |`);
+    }
+    lines.push('', '| Path | All-in receipt fee (wei) | Vs P0-net all-in | Prefunding fee (wei) |',
+      '| --- | ---: | ---: | ---: |');
+    for (const { path, allInReceiptFeeWei, allInVsP0NetPercent, prefunding } of paths) {
+      lines.push(`| ${path} | ${allInReceiptFeeWei} | ${allInVsP0NetPercent}% | ${prefunding.feeWei} |`);
     }
     lines.push('', '| Path | Deployment gas | Deployment fee (wei) | Gas per payment | Fee per payment (wei) |',
       '| --- | ---: | ---: | ---: | ---: |');
@@ -242,6 +249,9 @@ async function main() {
           if (paths.length) assert.deepEqual(result.finalBalances, paths[0].finalBalances);
           const baseline = BigInt((paths.find(row => row.path === 'P0-net') ?? result).feeWei);
           result.feeVsP0NetPercent = path === 'P0' ? 'N/A' : (Number((BigInt(result.feeWei) * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
+          const allInBaseline = BigInt((paths.find(row => row.path === 'P0-net') ?? result).allInReceiptFeeWei);
+          assert(allInBaseline > 0n, 'Zero all-in baseline');
+          result.allInVsP0NetPercent = path === 'P0' ? 'N/A' : (Number((BigInt(result.allInReceiptFeeWei) * 10000n + allInBaseline / 2n) / allInBaseline) / 100).toFixed(2);
           paths.push(result);
         } finally {
           assert(await rpc('evm_revert', snapshot), 'Could not restore Anvil state');
