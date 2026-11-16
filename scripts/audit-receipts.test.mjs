@@ -107,3 +107,20 @@ test('all-in gate includes actual prefunding fees even when path totals exclude 
  assert.equal(r.savingsBasisPoints,'2000');
  assert.equal(r.meets45Percent,false);
 });
+
+test('rejects forged prefunding fees and unknown prefunding stage', () => {
+ const g=groups(); const p=g[0].paths[1];
+ p.receipts.push({...receipt('prefund-forged','prefund',30),feeWei:'0'});
+ assert.throws(() => auditGroups(g), /Receipt fee mismatch/);
+ const h=groups(); h[0].paths[1].receipts.push(receipt('unknown','prefunding',30));
+ assert.throws(() => auditGroups(h), /Unknown receipt stage/);
+});
+test('counts rollup blob fees and rejects forged blob-inclusive receipt fees', () => {
+ const g=groups(); const p=g[0].paths[1];
+ p.receipts[1].blobFee='40'; p.receipts[1].feeWei='140'; p.feeWei='140';
+ const [result]=auditGroups(g);
+ assert.equal(result.candidateWei,'140');
+ assert.equal(result.savingsBasisPoints,'3000');
+ const forged=groups(); forged[0].paths[1].receipts[1].blobFee='40';
+ assert.throws(() => auditGroups(forged), /Receipt fee mismatch/);
+});
