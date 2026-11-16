@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { blobFeeFromReceipt } from './blob-fee-evidence.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
@@ -54,12 +55,14 @@ async function measure(hash, stage) {
   const transaction = await rpc('eth_getTransactionByHash', hash);
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
-  const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0);
+  const blobFee = blobFeeFromReceipt(receipt);
+  const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0) + BigInt(blobFee ?? 0);
   return {
     stage, hash, status: receipt.status, from: transaction.from, to: transaction.to,
     gasUsed: Number(BigInt(receipt.gasUsed)),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
+    ...(blobFee === undefined ? {} : { blobFee }),
     feeWei: fee.toString(),
     calldataBytes: input.length,
     zeroBytes,
