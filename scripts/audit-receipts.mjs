@@ -6,7 +6,7 @@ const uint = (x, label) => {
   if (typeof x !== 'string' || !/^(0|[1-9][0-9]*)$/.test(x)) throw new TypeError(label + ' must be decimal wei');
   return BigInt(x);
 };
-export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', overhead = {} } = {}) {
+export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', overhead = {}, requireSuccessfulStatus = false } = {}) {
   if (!Array.isArray(groups) || !groups.length) throw new Error('Nonempty benchmark groups required');
   const results = [];
   for (const group of groups) {
@@ -22,9 +22,13 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
       for (const r of p.receipts) {
         if (!r || typeof r.hash !== 'string' || !r.hash.trim())
           throw new Error('Missing transaction hash');
+        if (requireSuccessfulStatus && r.status === undefined)
+          throw new Error('Missing mined receipt status: ' + r.hash);
         if (r.status !== undefined && !['0x1', '1'].includes(r.status))
           throw new Error('Unsuccessful benchmark receipt: ' + r.hash);
       }
+      if (new Set(p.receipts.map(r => r.hash)).size !== p.receipts.length)
+        throw new Error('Duplicate transaction hash including prefund');
       const counted = p.receipts.filter(r => r.stage !== 'prefund');
       if (counted.some(r => !['deployment', 'approval', 'settlement'].includes(r.stage)))
         throw new Error('Unknown receipt stage');

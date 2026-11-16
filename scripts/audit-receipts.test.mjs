@@ -59,3 +59,16 @@ test('rejects failed receipt status and missing transaction identity', () => {
  const blank=groups(); blank[0].paths[1].receipts[1].hash='   ';
  assert.throws(()=>auditGroups(blank),/Missing transaction hash/);
 });
+
+test('strict audit requires explicit mined success status', () => {
+ const g=groups();
+ assert.throws(() => auditGroups(g,{requireSuccessfulStatus:true}), /Missing mined receipt status/);
+ for (const p of g[0].paths) for (const r of p.receipts) r.status='0x1';
+ assert.equal(auditGroups(g,{requireSuccessfulStatus:true})[0].savingsBasisPoints,'5000');
+});
+test('prefund transaction hashes cannot duplicate settlement receipts', () => {
+ const g=groups();
+ const p=g[0].paths[1];
+ p.receipts.push({...receipt(p.receipts[1].hash,'prefund',1),status:'0x1'});
+ assert.throws(() => auditGroups(g),/Duplicate transaction hash including prefund/);
+});
