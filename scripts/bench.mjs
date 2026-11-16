@@ -1,3 +1,4 @@
+import { verifyMinedReceipt } from './verify-mined-receipt.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -50,16 +51,17 @@ async function measure(hash, stage) {
     if (receipt) break;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
-  assert.equal(receipt?.status, '0x1', `Transaction failed or was not mined: ${hash}`);
   const transaction = await rpc('eth_getTransactionByHash', hash);
+  const verified = verifyMinedReceipt(receipt, transaction, hash, 31337n);
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
-  const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0);
+  const fee = verified.feeWei;
   return {
     stage, hash, from: transaction.from, to: transaction.to,
-    gasUsed: Number(BigInt(receipt.gasUsed)),
+    gasUsed: Number(verified.gasUsed),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
+    ...(verified.blobFee === 0n ? {} : { blobFee: verified.blobFee.toString() }),
     feeWei: fee.toString(),
     calldataBytes: input.length,
     zeroBytes,
