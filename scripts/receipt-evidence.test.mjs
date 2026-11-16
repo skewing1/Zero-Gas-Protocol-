@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { verifyEvidence } from './receipt-evidence.mjs';
+const h=i=>'0x'+i.toString(16).padStart(64,'0');
+const r=(id,gas)=>({chainId:'31337',transactionHash:h(id),status:'0x1',gasUsed:String(gas),effectiveGasPrice:'2',l1FeeWei:'0',blobFeeWei:'0',totalFeeWei:String(gas*2)});
+const offchain=()=>({relayerWei:'0',dataWei:'0',proofWei:'0',bridgeWei:'0',infrastructureWei:'0'});
+const fixture=()=>({chainId:'31337',paths:[{outcomeDigest:h(9),receipts:[r(1,100)],offchain:offchain()},{outcomeDigest:h(9),receipts:[r(2,50)],offchain:offchain()}]});
+test('reports scenario only, never verified chain savings',()=>{const x=verifyEvidence(fixture());assert.equal(x.savingsBps,'5000');assert.equal(x.verifiedOnchain,false)});
+test('rejects failed or missing status',()=>{for(const status of ['0x0',undefined]){const x=fixture();x.paths[1].receipts[0].status=status;assert.throws(()=>verifyEvidence(x),/status/)}});
+test('rejects reused transaction hash',()=>{const x=fixture();x.paths[1].receipts[0].transactionHash=h(1);assert.throws(()=>verifyEvidence(x),/duplicate/)});
+test('rejects forged fees',()=>{const x=fixture();x.paths[1].receipts[0].totalFeeWei='0';assert.throws(()=>verifyEvidence(x),/fee mismatch/)});
+test('rejects chain mismatch',()=>{const x=fixture();x.paths[1].receipts[0].chainId='8453';assert.throws(()=>verifyEvidence(x),/chain mismatch/)});
+test('rejects outcome mismatch',()=>{const x=fixture();x.paths[1].outcomeDigest=h(10);assert.throws(()=>verifyEvidence(x),/outcome mismatch/)});
+test('requires all operating costs',()=>{const x=fixture();delete x.paths[1].offchain.bridgeWei;assert.throws(()=>verifyEvidence(x),/bridgeWei/)});
+test('operating costs can invalidate 45% savings',()=>{const x=fixture();x.paths[1].offchain.relayerWei='70';const y=verifyEvidence(x);assert.equal(y.savingsBps,'1500');assert.equal(y.exceeds45PercentScenario,false)});
+test('rejects fractional and negative cost values',()=>{for(const bad of ['-1','1.2',1]){const x=fixture();x.paths[0].offchain.dataWei=bad;assert.throws(()=>verifyEvidence(x),/decimal integer/)}});
