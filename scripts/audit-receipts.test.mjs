@@ -72,3 +72,24 @@ test('prefund transaction hashes cannot duplicate settlement receipts', () => {
  p.receipts.push({...receipt(p.receipts[1].hash,'prefund',1),status:'0x1'});
  assert.throws(() => auditGroups(g),/Duplicate transaction hash including prefund/);
 });
+
+test('CLI refuses legacy status-less evidence and accepts mined-success evidence', async () => {
+ const { spawnSync } = await import('node:child_process');
+ const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+ const { tmpdir } = await import('node:os');
+ const { join } = await import('node:path');
+ const dir = mkdtempSync(join(tmpdir(), 'receipt-audit-'));
+ try {
+   const file = join(dir, 'results.json');
+   writeFileSync(file, JSON.stringify(groups()));
+   const legacy = spawnSync(process.execPath, ['scripts/audit-receipts.mjs', file], { encoding:'utf8' });
+   assert.notEqual(legacy.status, 0);
+   assert.match(legacy.stderr, /Missing mined receipt status/);
+   const valid = groups();
+   for (const p of valid[0].paths) for (const r of p.receipts) r.status='0x1';
+   writeFileSync(file, JSON.stringify(valid));
+   const authoritative = spawnSync(process.execPath, ['scripts/audit-receipts.mjs', file], { encoding:'utf8' });
+   assert.equal(authoritative.status, 0, authoritative.stderr);
+   assert.equal(JSON.parse(authoritative.stdout)[0].meets45Percent, true);
+ } finally { rmSync(dir, {recursive:true,force:true}); }
+});
