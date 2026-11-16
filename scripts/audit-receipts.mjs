@@ -17,13 +17,21 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
     if (pair.some(p => !p)) throw new Error('Missing comparison path: ' + group.workload + '/' + group.asset);
     const audited = pair.map(p => {
       if (!Array.isArray(p.receipts)) throw new Error('Missing receipts');
+      // Reject missing identifiers and unsuccessful receipts before any accounting.
+      // A benchmark must never turn a reverted transaction into a successful one.
+      for (const r of p.receipts) {
+        if (!r || typeof r.hash !== 'string' || !r.hash.trim())
+          throw new Error('Missing transaction hash');
+        if (r.status !== undefined && !['0x1', '1'].includes(r.status))
+          throw new Error('Unsuccessful benchmark receipt: ' + r.hash);
+      }
       const counted = p.receipts.filter(r => r.stage !== 'prefund');
       if (counted.some(r => !['deployment', 'approval', 'settlement'].includes(r.stage)))
         throw new Error('Unknown receipt stage');
       if (new Set(counted.map(r => r.hash)).size !== counted.length) throw new Error('Duplicate transaction hash');
       const settlement = counted.filter(r => r.stage !== 'deployment');
       const deployment = counted.filter(r => r.stage === 'deployment');
-      const toReceipt = r => ({ status: '0x1', gasUsed: String(r.gasUsed), effectiveGasPrice: r.effectiveGasPrice,
+      const toReceipt = r => ({ status: r.status ?? '0x1', gasUsed: String(r.gasUsed), effectiveGasPrice: r.effectiveGasPrice,
         ...(r.l1Fee === undefined ? {} : { l1Fee: r.l1Fee }) });
       for (const r of counted) {
         const expected = allInCost({ receipts: [toReceipt(r)] }).totalWei;
