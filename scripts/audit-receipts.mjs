@@ -29,8 +29,19 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
         const expected = allInCost({ receipts: [toReceipt(r)] }).totalWei;
         if (uint(r.feeWei, 'receipt.feeWei') !== BigInt(expected)) throw new Error('Receipt fee mismatch: ' + r.hash);
       }
+      // Only accept documented cost supplements. Never let caller-controlled
+      // overhead replace the measured receipt array or deployment total.
+      const extras = overhead[p.path] ?? {};
+      const allowed = new Set(['relayerWei', 'proofWei', 'infrastructureWei', 'bridgingWei', 'amortizedDeploymentWei']);
+      if (!extras || typeof extras !== 'object' || Array.isArray(extras) ||
+          Object.keys(extras).some(key => !allowed.has(key)))
+        throw new Error('Unknown overhead field: ' + p.path);
+      const { relayerWei, proofWei, infrastructureWei, bridgingWei } = extras;
       const actual = allInCost({ receipts: settlement.map(toReceipt),
-        ...(overhead[p.path] ?? {}),
+        ...(relayerWei === undefined ? {} : { relayerWei }),
+        ...(proofWei === undefined ? {} : { proofWei }),
+        ...(infrastructureWei === undefined ? {} : { infrastructureWei }),
+        ...(bridgingWei === undefined ? {} : { bridgingWei }),
         amortizedDeploymentWei: allInCost({ receipts: deployment.map(toReceipt) }).totalWei });
       if (uint(p.feeWei, 'path.feeWei') !== BigInt(allInCost({ receipts: settlement.map(toReceipt) }).totalWei))
         throw new Error('Path fee mismatch: ' + p.path);
