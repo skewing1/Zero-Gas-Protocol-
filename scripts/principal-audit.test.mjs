@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {auditPrincipal} from './principal-audit.mjs';
+const A='0x'+'11'.repeat(20), B='0x'+'22'.repeat(20), R='0x'+'33'.repeat(20);
+const base = () => ({asset:'native', obligations:[{from:A,to:B,amount:'100'}], balances:[{account:A,before:'1000',after:'895'},{account:B,before:'0',after:'100'},{account:R,before:'20',after:'13'}],gasPayers:[{account:A,feeWei:'5'},{account:R,feeWei:'7'}],residuals:[{before:'0',after:'0'}]});
+test('exact principal and independent relayer fees',()=>assert.equal(auditPrincipal(base()).equivalent,true));
+test('recipient shortfall rejected',()=>{const x=base();x.balances[1].after='99';assert.throws(()=>auditPrincipal(x),/principal mismatch/)});
+test('payer debit shortfall rejected',()=>{const x=base();x.balances[0].after='900';assert.throws(()=>auditPrincipal(x),/principal mismatch/)});
+test('relayer fee misallocation rejected',()=>{const x=base();x.gasPayers[1].feeWei='6';assert.throws(()=>auditPrincipal(x),/principal mismatch/)});
+test('unsettled escrow rejected',()=>{const x=base();x.residuals[0].after='1';assert.throws(()=>auditPrincipal(x),/unsettled/)});
+test('missing balance rejected',()=>{const x=base();x.balances.pop();assert.throws(()=>auditPrincipal(x),/missing balance/)});
+test('duplicate account rejected',()=>{const x=base();x.balances.push(x.balances[0]);assert.throws(()=>auditPrincipal(x),/duplicate balance/)});
+test('zero and malformed amounts rejected',()=>{const x=base();x.obligations[0].amount='0';assert.throws(()=>auditPrincipal(x),/invalid obligation/);x.obligations[0].amount='1e3';assert.throws(()=>auditPrincipal(x),/invalid amount/)});
+test('token principal excludes gas accounting',()=>{const x=base();x.asset='token';x.gasPayers=[];x.balances[0].after='900';x.balances.pop();assert.equal(auditPrincipal(x).equivalent,true)});
+test('token mixed gas evidence rejected',()=>{const x=base();x.asset='token';assert.throws(()=>auditPrincipal(x),/gas costs tracked separately/)});
+test('multiple payers not collapsed',()=>{const x=base();x.obligations.push({from:R,to:B,amount:'3'});x.balances[1].after='103';x.balances[2].after='10';assert.equal(auditPrincipal(x).equivalent,true)});
