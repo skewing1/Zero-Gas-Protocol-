@@ -93,3 +93,17 @@ test('CLI refuses legacy status-less evidence and accepts mined-success evidence
    assert.equal(JSON.parse(authoritative.stdout)[0].meets45Percent, true);
  } finally { rmSync(dir, {recursive:true,force:true}); }
 });
+
+test('all-in gate includes actual prefunding fees even when path totals exclude setup', () => {
+ const g=groups();
+ // Candidate has 50 gas units for settlement and 30 for prefunding, at 2 wei/gas.
+ // 160 / 200 = 80% of baseline cost, so the apparent 50% saving is only 20%.
+ const p=g[0].paths[1];
+ p.receipts.push({...receipt('candidate-prefund','prefund',30),status:'0x1'});
+ for (const row of g[0].paths[0].receipts) row.status='0x1';
+ for (const row of p.receipts) row.status='0x1';
+ const [r]=auditGroups(g,{requireSuccessfulStatus:true});
+ assert.equal(r.candidateWei,'160');
+ assert.equal(r.savingsBasisPoints,'2000');
+ assert.equal(r.meets45Percent,false);
+});

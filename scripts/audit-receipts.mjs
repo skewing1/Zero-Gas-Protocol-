@@ -34,6 +34,9 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
         throw new Error('Unknown receipt stage');
       if (new Set(counted.map(r => r.hash)).size !== counted.length) throw new Error('Duplicate transaction hash');
       const settlement = counted.filter(r => r.stage !== 'deployment');
+      // Prefunding is a real paid transaction, even if excluded from path.feeWei.
+      // Count it in all-in economics while retaining the original recorded path totals.
+      const prefunding = p.receipts.filter(r => r.stage === 'prefund');
       const deployment = counted.filter(r => r.stage === 'deployment');
       const toReceipt = r => ({ status: r.status ?? '0x1', gasUsed: String(r.gasUsed), effectiveGasPrice: r.effectiveGasPrice,
         ...(r.l1Fee === undefined ? {} : { l1Fee: r.l1Fee }) });
@@ -49,7 +52,7 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
           Object.keys(extras).some(key => !allowed.has(key)))
         throw new Error('Unknown overhead field: ' + p.path);
       const { relayerWei, proofWei, infrastructureWei, bridgingWei } = extras;
-      const actual = allInCost({ receipts: settlement.map(toReceipt),
+      const actual = allInCost({ receipts: [...prefunding, ...settlement].map(toReceipt),
         ...(relayerWei === undefined ? {} : { relayerWei }),
         ...(proofWei === undefined ? {} : { proofWei }),
         ...(infrastructureWei === undefined ? {} : { infrastructureWei }),
