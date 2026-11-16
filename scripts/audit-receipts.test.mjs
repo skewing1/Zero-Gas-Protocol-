@@ -38,3 +38,15 @@ test('caller overhead cannot overwrite measured deployment fees',()=>{
  assert.equal(r.savingsBasisPoints,'-500');
  assert.equal(r.meets45Percent,false);
 });
+
+test('rejects caller overhead that attempts to replace measured receipts', () => {
+ const g=groups();
+ assert.throws(() => auditGroups(g,{overhead:{'P1-net':{receipts:[]}}}), /Unknown overhead field/);
+ assert.throws(() => auditGroups(g,{overhead:{'P1-net':{totalWei:'0'}}}), /Unknown overhead field/);
+});
+test('allows explicit relayer overhead without modifying receipt totals', () => {
+ const [r]=auditGroups(groups(),{overhead:{'P1-net':{relayerWei:'10'}}});
+ assert.equal(r.candidateWei,'110');
+ assert.equal(r.savingsBasisPoints,'4500');
+ assert.equal(r.meets45Percent,true);
+});
