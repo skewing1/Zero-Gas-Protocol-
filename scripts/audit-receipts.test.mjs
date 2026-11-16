@@ -50,3 +50,12 @@ test('allows explicit relayer overhead without modifying receipt totals', () => 
  assert.equal(r.savingsBasisPoints,'4500');
  assert.equal(r.meets45Percent,true);
 });
+
+test('rejects failed receipt status and missing transaction identity', () => {
+ const failed=groups(); failed[0].paths[1].receipts[1].status='0x0';
+ assert.throws(()=>auditGroups(failed),/Unsuccessful benchmark receipt/);
+ const missing=groups(); delete missing[0].paths[1].receipts[1].hash;
+ assert.throws(()=>auditGroups(missing),/Missing transaction hash/);
+ const blank=groups(); blank[0].paths[1].receipts[1].hash='   ';
+ assert.throws(()=>auditGroups(blank),/Missing transaction hash/);
+});
