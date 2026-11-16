@@ -29,6 +29,8 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
       }
       if (new Set(p.receipts.map(r => r.hash)).size !== p.receipts.length)
         throw new Error('Duplicate transaction hash including prefund');
+      if (p.receipts.some(r => !['prefund', 'deployment', 'approval', 'settlement'].includes(r.stage)))
+        throw new Error('Unknown receipt stage');
       const counted = p.receipts.filter(r => r.stage !== 'prefund');
       if (counted.some(r => !['deployment', 'approval', 'settlement'].includes(r.stage)))
         throw new Error('Unknown receipt stage');
@@ -39,8 +41,9 @@ export function auditGroups(groups, { baseline = 'P0', candidate = 'P1-net', ove
       const prefunding = p.receipts.filter(r => r.stage === 'prefund');
       const deployment = counted.filter(r => r.stage === 'deployment');
       const toReceipt = r => ({ status: r.status ?? '0x1', gasUsed: String(r.gasUsed), effectiveGasPrice: r.effectiveGasPrice,
-        ...(r.l1Fee === undefined ? {} : { l1Fee: r.l1Fee }) });
-      for (const r of counted) {
+        ...(r.l1Fee === undefined ? {} : { l1Fee: r.l1Fee }),
+        ...(r.blobFee === undefined ? {} : { blobFee: r.blobFee }) });
+      for (const r of p.receipts) {
         const expected = allInCost({ receipts: [toReceipt(r)] }).totalWei;
         if (uint(r.feeWei, 'receipt.feeWei') !== BigInt(expected)) throw new Error('Receipt fee mismatch: ' + r.hash);
       }
