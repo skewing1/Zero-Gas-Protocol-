@@ -14,6 +14,15 @@ contract ClaimSettlement {
     mapping(uint256 => mapping(uint256 => uint256)) private claimed;
 
     error InvalidBatch();
+    error EmptyClaims();
+
+    struct ClaimInput {
+        uint256 batchId;
+        uint256 index;
+        address payable recipient;
+        uint256 amount;
+        bytes32[] proof;
+    }
     error InvalidClaim();
     error AlreadyClaimed();
     error PaymentFailed();
@@ -31,6 +40,22 @@ contract ClaimSettlement {
     function claim(
         uint256 batchId, uint256 index, address payable recipient, uint256 amount, bytes32[] calldata proof
     ) external {
+        _claim(batchId, index, recipient, amount, proof);
+    }
+
+    /// @notice Permissionless atomic aggregation of multiple independently verified payouts.
+    /// @dev Each payout retains its own proof and bitmap protection. A failed payout reverts all.
+    function claimMany(ClaimInput[] calldata claims) external {
+        if (claims.length == 0) revert EmptyClaims();
+        for (uint256 i; i < claims.length; ++i) {
+            ClaimInput calldata item = claims[i];
+            _claim(item.batchId, item.index, item.recipient, item.amount, item.proof);
+        }
+    }
+
+    function _claim(
+        uint256 batchId, uint256 index, address payable recipient, uint256 amount, bytes32[] calldata proof
+    ) internal {
         uint256 word = index >> 8;
         uint256 mask = uint256(1) << (index & 255);
         uint256 flags = claimed[batchId][word];
