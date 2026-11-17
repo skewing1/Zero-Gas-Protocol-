@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {evaluateBreakEven,COST_KEYS} from './economic-break-even-gate.mjs';
+const costs=()=>Object.fromEntries(COST_KEYS.map(k=>[k,'0']));
+const scenario=()=>{const baseline=costs(),candidate=costs();baseline.executionWei='100000';candidate.executionWei='40000';return {baseline,candidate,paymentCount:'10'};};
+test('60 percent is modeled, never verified',()=>{const r=evaluateBreakEven(scenario());assert.equal(r.savingsBps,'6000');assert.equal(r.modeledAbove45Percent,true);assert.equal(r.verifiedAbove45Percent,false);});
+test('relayer and settlement costs erase nominal savings',()=>{const x=scenario();x.candidate.relayerWei='30000';x.candidate.settlementWei='40000';const r=evaluateBreakEven(x);assert.equal(r.savedWei,'-10000');assert.equal(r.modeledAbove45Percent,false);});
+test('exactly 45 percent is not above target',()=>{const x=scenario();x.candidate.executionWei='55000';assert.equal(evaluateBreakEven(x).modeledAbove45Percent,false);});
+test('one wei above 45 percent is above target',()=>{const x=scenario();x.candidate.executionWei='54999';assert.equal(evaluateBreakEven(x).modeledAbove45Percent,true);});
+test('explicit attestation flag cannot produce verified savings',()=>{const x=scenario();x.equivalentOutcomeAttested=true;assert.equal(evaluateBreakEven(x).verifiedAbove45Percent,false);});
+test('rejects missing category',()=>{const x=scenario();delete x.candidate.liquidityWei;assert.throws(()=>evaluateBreakEven(x),/exact cost categories/);});
+test('rejects unknown category',()=>{const x=scenario();x.candidate.hiddenFeeWei='0';assert.throws(()=>evaluateBreakEven(x),/exact cost categories/);});
+test('rejects negative fee',()=>{const x=scenario();x.candidate.rpcWei='-1';assert.throws(()=>evaluateBreakEven(x),/canonical/);});
+test('rejects noncanonical fee',()=>{const x=scenario();x.candidate.blobWei='01';assert.throws(()=>evaluateBreakEven(x),/canonical/);});
+test('rejects zero payments',()=>{const x=scenario();x.paymentCount='0';assert.throws(()=>evaluateBreakEven(x),/positive/);});
+test('rejects zero baseline',()=>{const x=scenario();x.baseline.executionWei='0';assert.throws(()=>evaluateBreakEven(x),/baseline must be positive/);});
+test('uses exact bigint arithmetic for huge wei values',()=>{const x=scenario();x.baseline.executionWei='1000000000000000000000000000000';x.candidate.executionWei='400000000000000000000000000000';assert.equal(evaluateBreakEven(x).savingsBps,'6000');});
