@@ -24,7 +24,7 @@ contract SignedPayout7702Test is Test {
         return SignedPayout7702.Payout(address(0), recipient, 1 ether, n, block.timestamp + 100);
     }
 
-    function _sign(SignedPayout7702.Payout memory p) internal view returns (bytes memory) {
+    function _sign(SignedPayout7702.Payout memory p) internal returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(OWNER_KEY, account.digest(p));
         return abi.encodePacked(r, s, v);
     }
