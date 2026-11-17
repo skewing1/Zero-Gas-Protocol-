@@ -4,20 +4,22 @@ const HASH=/^0x[0-9a-fA-F]{64}$/;
 function nat(x,name){if(typeof x!=='string'||!DEC.test(x))throw Error(name+': canonical wei integer required');return BigInt(x)}
 function receipts(p,label){
  if(!Array.isArray(p.receipts)||!p.receipts.length)throw Error(label+': receipts missing');
- const seen=new Set();let gas=0n,fee=0n;
+ const seen=new Set();let gas=0n,fee=0n,deployGas=0n,deployFee=0n,prefundGas=0n,prefundFee=0n;
  for(const r of p.receipts){
   if(!r||!HASH.test(r.hash))throw Error(label+': invalid receipt hash');
   const hash=r.hash.toLowerCase();if(seen.has(hash))throw Error(label+': duplicate receipt');seen.add(hash);
-  if(r.stage==='prefund')throw Error(label+': prefunding excluded from reported totals');
-  if(r.stage==='deployment')continue;
   if(!Number.isSafeInteger(r.gasUsed)||r.gasUsed<0)throw Error(label+': invalid gasUsed');
   const used=BigInt(r.gasUsed),price=nat(r.effectiveGasPrice,'effectiveGasPrice');
   const l1=r.l1Fee===undefined?0n:nat(r.l1Fee,'l1Fee');
   if(nat(r.feeWei,'feeWei')!==used*price+l1)throw Error(label+': receipt fee mismatch');
-  gas+=used;fee+=used*price+l1;
+  if(r.stage==='deployment'){deployGas+=used;deployFee+=used*price+l1;}
+  else if(r.stage==='prefund'){prefundGas+=used;prefundFee+=used*price+l1;}
+  else {gas+=used;fee+=used*price+l1;}
  }
  if(gas!==BigInt(p.gas)||fee!==nat(p.feeWei,'total feeWei'))throw Error(label+': aggregate mismatch');
- return fee;
+ if(!p.deployment||BigInt(p.deployment.gas)!==deployGas||nat(p.deployment.feeWei,'deployment feeWei')!==deployFee)throw Error(label+': deployment aggregate mismatch');
+ if(!p.prefunding||BigInt(p.prefunding.gas)!==prefundGas||nat(p.prefunding.feeWei,'prefunding feeWei')!==prefundFee)throw Error(label+': prefunding aggregate mismatch');
+ return fee+deployFee+prefundFee;
 }
 export function auditBenchmarkGroups(groups){
  if(!Array.isArray(groups)||!groups.length)throw Error('nonempty benchmark groups required');
@@ -34,6 +36,6 @@ export function auditBenchmarkGroups(groups){
   });
   const baseline=paths[0];if(baseline.fee===0n)throw Error(key+': zero baseline');
   for(const p of paths)if(JSON.stringify(p.balances)!==JSON.stringify(baseline.balances))throw Error(key+': unequal final balances');
-  return {workload:g.workload,asset:g.asset,comparisons:paths.map(p=>({path:p.path,executionFeeWei:p.fee.toString(),executionOnlySavingsBps:((baseline.fee-p.fee)*10000n/baseline.fee).toString(),verifiedAllInSavings:false})),evidenceLevel:'LOCAL_RECEIPTS_UNATTESTED_AND_OPERATING_COSTS_EXCLUDED'};
+  return {workload:g.workload,asset:g.asset,comparisons:paths.map(p=>({path:p.path,observedReceiptFeeWei:p.fee.toString(),receiptInclusiveSavingsBps:((baseline.fee-p.fee)*10000n/baseline.fee).toString(),verifiedAllInSavings:false})),evidenceLevel:'LOCAL_RECEIPTS_INCLUDE_DEPLOYMENT_AND_PREFUND_BUT_OPERATING_COSTS_UNATTESTED'};
  });
 }
