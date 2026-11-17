@@ -57,3 +57,40 @@ test('fails closed if RPC rejects EIP-1898 block hash selectors',async()=>{
  const reject=async(method,params)=>{if(method==='eth_call')throw Error('EIP-1898 unsupported');return rpc()(method,params)};
  await assert.rejects(observeErc20Deltas(args(reject,rpc())),/EIP-1898 unsupported/);
 });
+
+test('rechecks both snapshot headers after all balance reads on both transports',async()=>{
+ const calls=[];
+ const track=fn=>async(method,params)=>{
+  if(method==='eth_getBlockByNumber')calls.push(params[0]);
+  return fn(method,params);
+ };
+ await observeErc20Deltas(args(track(rpc()),track(rpc())));
+ assert.equal(calls.filter(x=>x==='0xa').length,4);
+ assert.equal(calls.filter(x=>x==='0xb').length,4);
+});
+test('rejects a reorg after balance reads despite EIP-1898 pinned calls',async()=>{
+ const drifting=()=>{
+  const base=rpc();let checks=0;
+  return async(method,params)=>{
+   if(method==='eth_getBlockByNumber'&&params[0]==='0xb'){
+    checks++;
+    if(checks===2)return {number:'0xb',hash:hash(99)};
+   }
+   return base(method,params);
+  };
+ };
+ await assert.rejects(observeErc20Deltas(args(drifting(),rpc())),/noncanonical snapshot block/);
+});
+test('rejects a before-block reorg after balance reads',async()=>{
+ const drifting=()=>{
+  const base=rpc();let checks=0;
+  return async(method,params)=>{
+   if(method==='eth_getBlockByNumber'&&params[0]==='0xa'){
+    checks++;
+    if(checks===2)return {number:'0xa',hash:hash(99)};
+   }
+   return base(method,params);
+  };
+ };
+ await assert.rejects(observeErc20Deltas(args(rpc(),drifting())),/noncanonical snapshot block/);
+});
