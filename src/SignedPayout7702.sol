@@ -43,6 +43,8 @@ contract SignedPayout7702 {
     error Reentered();
     error TransferFailed();
     error ValueNotAllowed();
+    error OnlyAccount();
+    error NonceNotIncreasing();
 
     event PayoutExecuted(
         address indexed account, address indexed recipient, address indexed asset,
@@ -52,6 +54,24 @@ contract SignedPayout7702 {
     function _state() private pure returns (State storage s) {
         bytes32 slot = STORAGE_SLOT;
         assembly { s.slot := slot }
+    }
+
+    event NonceInvalidated(address indexed account, uint256 oldNonce, uint256 newNonce);
+
+    /// @notice The EOA owner may send a transaction FROM the account TO itself
+    /// to invalidate all pending signatures with smaller nonces. A relayer
+    /// cannot call this function on behalf of the owner.
+    /// @dev EIP-7702 delegated EOAs execute in their own storage context.
+    /// This does not invalidate signatures if delegation later switches to
+    /// an implementation with incompatible nonce storage or restores old state.
+    function invalidateNonce(uint256 newNonce) external {
+        if (msg.sender != address(this)) revert OnlyAccount();
+        State storage s = _state();
+        if (s.entered != 0) revert Reentered();
+        uint256 oldNonce = s.nonce;
+        if (newNonce <= oldNonce) revert NonceNotIncreasing();
+        s.nonce = newNonce;
+        emit NonceInvalidated(address(this), oldNonce, newNonce);
     }
 
     function nonce() external view returns (uint256) {
