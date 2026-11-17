@@ -119,4 +119,32 @@ contract SignedPayout7702Test is Test {
         assertEq(recipient.balance, 1 ether);
     }
 
+    function testOwnerCanCancelPendingSignedPayouts() public {
+        SignedPayout7702.Payout memory p = _payout(0);
+        bytes memory signature = _sign(p);
+        vm.prank(owner);
+        account.invalidateNonce(3);
+        assertEq(account.nonce(), 3);
+        vm.expectRevert(SignedPayout7702.InvalidNonce.selector);
+        account.execute(p, signature);
+        assertEq(recipient.balance, 0);
+    }
+
+    function testRelayerCannotInvalidateNonce() public {
+        vm.prank(address(0xCAFE));
+        vm.expectRevert(SignedPayout7702.OnlyAccount.selector);
+        account.invalidateNonce(9);
+        assertEq(account.nonce(), 0);
+    }
+
+    function testNonceInvalidationMustIncrease() public {
+        vm.prank(owner);
+        vm.expectRevert(SignedPayout7702.NonceNotIncreasing.selector);
+        account.invalidateNonce(0);
+        vm.prank(owner);
+        account.invalidateNonce(2);
+        vm.prank(owner);
+        vm.expectRevert(SignedPayout7702.NonceNotIncreasing.selector);
+        account.invalidateNonce(2);
+    }
 }
