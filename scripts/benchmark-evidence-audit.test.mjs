@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {auditBenchmarkGroups} from './benchmark-evidence-audit.mjs';
+const hash=n=>'0x'+n.toString(16).padStart(64,'0');
+const receipt=(n,gas)=>({hash:hash(n),stage:'settlement',gasUsed:gas,effectiveGasPrice:'2',feeWei:String(gas*2)});
+const path=(name,n,gas)=>({path:name,gas,feeWei:String(gas*2),finalBalances:['5','10'],receipts:[receipt(n,gas)]});
+const fixture=()=>[{workload:'W1',asset:'native',paths:[path('P0',1,100),path('P1',2,40)]}];
+test('execution-only savings never verified',()=>{const r=auditBenchmarkGroups(fixture())[0].comparisons[1];assert.equal(r.executionOnlySavingsBps,'6000');assert.equal(r.verifiedAllInSavings,false)});
+test('receipt fee tampering',()=>{const x=fixture();x[0].paths[1].receipts[0].feeWei='1';assert.throws(()=>auditBenchmarkGroups(x),/receipt fee mismatch/)});
+test('aggregate tampering',()=>{const x=fixture();x[0].paths[1].feeWei='1';assert.throws(()=>auditBenchmarkGroups(x),/aggregate mismatch/)});
+test('unequal balances',()=>{const x=fixture();x[0].paths[1].finalBalances=['6','10'];assert.throws(()=>auditBenchmarkGroups(x),/unequal final balances/)});
+test('missing P0',()=>{const x=fixture();x[0].paths.shift();assert.throws(()=>auditBenchmarkGroups(x),/P0 baseline/)});
+test('duplicate receipt',()=>{const x=fixture();x[0].paths[1].receipts.push(receipt(2,40));assert.throws(()=>auditBenchmarkGroups(x),/duplicate receipt/)});
+test('missing receipt',()=>{const x=fixture();x[0].paths[1].receipts=[];assert.throws(()=>auditBenchmarkGroups(x),/receipts missing/)});
+test('excluded prefunding',()=>{const x=fixture();x[0].paths[1].receipts[0].stage='prefund';assert.throws(()=>auditBenchmarkGroups(x),/prefunding excluded/)});
+test('missing gas price',()=>{const x=fixture();delete x[0].paths[1].receipts[0].effectiveGasPrice;assert.throws(()=>auditBenchmarkGroups(x),/canonical wei/)});
+test('duplicate group',()=>{const x=fixture();x.push(structuredClone(x[0]));assert.throws(()=>auditBenchmarkGroups(x),/duplicate workload/)});
