@@ -123,13 +123,7 @@ contract SignedPayout7702 {
             (bool ok,) = p.recipient.call{value: p.amount}("");
             if (!ok) revert TransferFailed();
         } else {
-            if (p.asset.code.length == 0) revert TransferFailed();
-            (bool ok, bytes memory data) = p.asset.call(
-                abi.encodeWithSelector(0xa9059cbb, p.recipient, p.amount)
-            );
-            if (!ok || (data.length != 0 && (data.length != 32 || !abi.decode(data, (bool))))) {
-                revert TransferFailed();
-            }
+            _transferExactToken(p.asset, p.recipient, p.amount);
         }
 
         s.entered = 0;
@@ -182,17 +176,37 @@ contract SignedPayout7702 {
                 (bool ok,) = p.recipient.call{value: p.amount}("");
                 if (!ok) revert TransferFailed();
             } else {
-                if (p.asset.code.length == 0) revert TransferFailed();
-                (bool ok, bytes memory data) = p.asset.call(
-                    abi.encodeWithSelector(0xa9059cbb, p.recipient, p.amount)
-                );
-                if (!ok || (data.length != 0 && (data.length != 32 || !abi.decode(data, (bool))))) {
-                    revert TransferFailed();
-                }
+                _transferExactToken(p.asset, p.recipient, p.amount);
             }
         }
         s.entered = 0;
         emit BatchExecuted(address(this), expectedNonce, length, msg.sender);
+    }
+
+
+    /// @dev Exact recipient delivery is required; fee-on-transfer tokens fail.
+    /// Tokens without a standard balanceOf(address) are deliberately rejected.
+    function _balanceOf(address token, address account) private view returns (uint256 value) {
+        (bool ok, bytes memory data) = token.staticcall(
+            abi.encodeWithSelector(0x70a08231, account)
+        );
+        if (!ok || data.length != 32) revert TransferFailed();
+        value = abi.decode(data, (uint256));
+    }
+
+    function _transferExactToken(address token, address recipient, uint256 amount) private {
+        if (token.code.length == 0) revert TransferFailed();
+        uint256 beforeBalance = _balanceOf(token, recipient);
+        (bool ok, bytes memory data) = token.call(
+            abi.encodeWithSelector(0xa9059cbb, recipient, amount)
+        );
+        if (!ok || (data.length != 0 && (data.length != 32 || !abi.decode(data, (bool))))) {
+            revert TransferFailed();
+        }
+        uint256 afterBalance = _balanceOf(token, recipient);
+        if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) {
+            revert TransferFailed();
+        }
     }
 
     function _recover(bytes32 h, bytes calldata sig) private pure returns (address signer) {
