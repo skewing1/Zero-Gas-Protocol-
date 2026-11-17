@@ -37,5 +37,5 @@ export function compareAllInCost(input) {
   const b=side(baseline,'baseline'), c=side(candidate,'candidate');
   if (b.totalWei === 0n) throw new Error('zero baseline cost');
   const savingsBps=(b.totalWei-c.totalWei)*10000n/b.totalWei;
-  return Object.freeze({baselineWei:b.totalWei.toString(),candidateWei:c.totalWei.toString(),receiptBaselineWei:b.receiptWei.toString(),receiptCandidateWei:c.receiptWei.toString(),savingsBps:savingsBps.toString(),above45Percent:savingsBps>4500n, evidenceLevel:'UNATTESTED_INPUTS_NOT_VERIFIED_SAVINGS'});
+  return Object.freeze({baselineWei:b.totalWei.toString(),candidateWei:c.totalWei.toString(),receiptBaselineWei:b.receiptWei.toString(),receiptCandidateWei:c.receiptWei.toString(),savingsBps:savingsBps.toString(),modeledAbove45Percent:savingsBps>4500n, verifiedAbove45Percent:false, evidenceLevel:'UNATTESTED_INPUTS_NOT_VERIFIED_SAVINGS'});
 }
