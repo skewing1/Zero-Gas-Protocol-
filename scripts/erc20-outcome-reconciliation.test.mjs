@@ -11,7 +11,9 @@ function rpc(values={}) {
   if(method==='eth_getBlockByNumber'){const n=BigInt(params[0]);return {number:params[0],hash:values.badHash&&n===11n?hash(99):hash(Number(n))};}
   if(method==='eth_call'){
    const account='0x'+params[0].data.slice(-40);
-   const n=BigInt(params[1]);let balance=account===payer?(n===10n?100n:60n):(n===10n?0n:40n);
+   const selector=params[1];
+   if(!selector||selector.blockHash!==hash(10)&&selector.blockHash!==hash(11)||selector.requireCanonical!==true)throw Error('missing canonical block hash pin');
+   const n=selector.blockHash===hash(10)?10n:11n;let balance=account===payer?(n===10n?100n:60n):(n===10n?0n:40n);
    if(values.altered&&account===recipient&&n===11n)balance+=1n;
    return '0x'+balance.toString(16).padStart(64,'0');
   }
@@ -40,4 +42,18 @@ test('rejects mismatched expected recipient outcome',async()=>{
 test('rejects incomplete account coverage',async()=>{
  const a=await observeErc20Deltas(args()),b=await observeErc20Deltas(args());
  assert.throws(()=>compareErc20Outcomes(a,b,{[recipient]:'40'}),/coverage/);
+});
+
+test('pins all balance reads to canonical EIP-1898 block hashes',async()=>{
+ const reads=[];const a=rpc(),b=rpc();
+ const track=fn=>async(method,params)=>{if(method==='eth_call')reads.push(params[1]);return fn(method,params)};
+ await observeErc20Deltas(args(track(a),track(b)));
+ assert.equal(reads.length,8);
+ assert.equal(reads.filter(x=>x.blockHash===before.hash).length,4);
+ assert.equal(reads.filter(x=>x.blockHash===after.hash).length,4);
+ assert.ok(reads.every(x=>x.requireCanonical===true));
+});
+test('fails closed if RPC rejects EIP-1898 block hash selectors',async()=>{
+ const reject=async(method,params)=>{if(method==='eth_call')throw Error('EIP-1898 unsupported');return rpc()(method,params)};
+ await assert.rejects(observeErc20Deltas(args(reject,rpc())),/EIP-1898 unsupported/);
 });

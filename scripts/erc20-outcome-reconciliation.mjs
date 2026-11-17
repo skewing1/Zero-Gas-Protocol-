@@ -15,13 +15,16 @@ async function snapshot(rpc,chainId,block){
  const tag='0x'+block.number.toString(16);
  const b=await rpc('eth_getBlockByNumber',[tag,false]);
  if(!b||hash(b.hash,'block hash')!==block.hash||quantity(b.number,'block number')!==block.number)throw Error('noncanonical snapshot block');
- return tag;
+ return block.hash;
 }
 async function balances(rpc,token,accounts,tag){
  const values=[];
  for(const account of accounts){
   const data='0x70a08231'+account.slice(2).padStart(64,'0');
-  const v=await rpc('eth_call',[{to:token,data},tag]);
+  // EIP-1898 blockHash pinning prevents a reorg between the block-header check
+  // and the balanceOf call from silently substituting a different state.
+  // An RPC that does not support blockHash selectors must fail closed.
+  const v=await rpc('eth_call',[{to:token,data},{blockHash:tag,requireCanonical:true}]);
   if(typeof v!=='string'||!/^0x[0-9a-fA-F]{64}$/.test(v))throw Error('invalid ERC20 balanceOf response');
   values.push(BigInt(v));
  }
