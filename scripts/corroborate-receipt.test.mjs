@@ -32,7 +32,7 @@ test('rejects disagreement on charged gas',async()=>{
   await assert.rejects(corroborateReceipt(args(endpoint(),rpcB)),/RPC disagreement: gasUsed/);
 });
 test('rejects a failed endpoint',async()=>{
-  await assert.rejects(corroborateReceipt(args(endpoint(),endpoint({eth_getTransactionReceipt:null})),/missing receipt/);
+  await assert.rejects(corroborateReceipt(args(endpoint(),endpoint({eth_getTransactionReceipt:null}))),/missing receipt/);
 });
 test('uses lower confirmation count',async()=>{
   const result=await corroborateReceipt(args(endpoint(),endpoint({eth_blockNumber:'0x1b'})));
