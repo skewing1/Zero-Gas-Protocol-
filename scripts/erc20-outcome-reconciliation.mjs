@@ -44,6 +44,11 @@ export async function observeErc20Deltas({rpcA,rpcB,chainId,token,accounts,befor
   const pre=await snapshot(rpc,chain,start);
   const post=await snapshot(rpc,chain,end);
   const [p,q]=await Promise.all([balances(rpc,t,a,pre),balances(rpc,t,a,post)]);
+  // EIP-1898 pins the state reads, but a block can cease to be canonical
+  // while those reads are in flight. Re-check both canonical headers AFTER
+  // the reads, failing closed if either block was reorganized away.
+  await snapshot(rpc,chain,start);
+  await snapshot(rpc,chain,end);
   return q.map((v,i)=>v-p[i]);
  }));
  for(let i=0;i<a.length;i++)if(observed[0][i]!==observed[1][i])throw Error('RPC balance disagreement');
