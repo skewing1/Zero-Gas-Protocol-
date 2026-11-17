@@ -113,7 +113,7 @@ contract SignedPayout7702 {
         if (s.entered != 0) revert Reentered();
         if (p.nonce != s.nonce) revert InvalidNonce();
         if (block.timestamp > p.deadline) revert Expired();
-        if (p.recipient == address(0) || p.amount == 0) revert InvalidPayout();
+        if ((p.recipient == address(0) || p.recipient == address(this)) || p.amount == 0) revert InvalidPayout();
         if (_recover(digest(p), signature) != address(this)) revert InvalidSignature();
 
         s.entered = 1;
@@ -163,7 +163,7 @@ contract SignedPayout7702 {
         uint256 length = items.length;
         if (length == 0 || length > MAX_BATCH_ITEMS) revert InvalidBatchLength();
         for (uint256 i; i < length; ++i) {
-            if (items[i].recipient == address(0) || items[i].amount == 0) revert InvalidPayout();
+            if ((items[i].recipient == address(0) || items[i].recipient == address(this)) || items[i].amount == 0) revert InvalidPayout();
         }
         if (_recover(batchDigest(items, expectedNonce, deadline), signature) != address(this)) {
             revert InvalidSignature();
