@@ -88,4 +88,35 @@ contract SignedPayout7702Test is Test {
         vm.expectRevert(SignedPayout7702.ValueNotAllowed.selector);
         account.execute{value: 1}(p, _sign(p));
     }
+    function testDifferentImplementationRejectsOldSignature() public {
+        SignedPayout7702.Payout memory p = _payout(0);
+        bytes memory oldSignature = _sign(p);
+        bytes32 oldDomain = account.domainSeparator();
+
+        // Different deployment => different immutable implementation identity.
+        SignedPayout7702 replacement = new SignedPayout7702();
+        vm.etch(owner, address(replacement).code);
+        assertTrue(account.domainSeparator() != oldDomain);
+
+        vm.expectRevert(SignedPayout7702.InvalidSignature.selector);
+        account.execute(p, oldSignature);
+        assertEq(account.nonce(), 0);
+        assertEq(recipient.balance, 0);
+    }
+
+    function testSameImplementationRetainsSignatureDomain() public {
+        SignedPayout7702.Payout memory p = _payout(0);
+        bytes memory signature = _sign(p);
+        bytes32 originalDomain = account.domainSeparator();
+
+        SignedPayout7702 sameImplementation = new SignedPayout7702();
+        // Restoring identical deployed runtime code should preserve the domain.
+        // The replacement deployment is intentionally unused here.
+        assertTrue(address(sameImplementation) != owner);
+        assertEq(account.domainSeparator(), originalDomain);
+        vm.prank(address(0xCAFE));
+        account.execute(p, signature);
+        assertEq(recipient.balance, 1 ether);
+    }
+
 }
