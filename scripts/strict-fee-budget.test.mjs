@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {maximumIncrementalCandidateOverhead as budget} from './strict-fee-budget.mjs';
+const run=(b,c,n='10')=>budget({baselineTotalWei:b,candidateKnownTotalWei:c,paymentCount:n});
+test('exact strict 45 percent boundary',()=>{const x=run('100000','40000');assert.equal(x.maximumAdditionalOverheadWei,'14999');assert.equal(x.maximumTotalCandidateWei,'54999');assert.equal(x.targetStillFeasible,true);});
+test('45 percent exact is not sufficient',()=>{const x=run('100000','55000');assert.equal(x.targetStillFeasible,false);assert.equal(x.maximumAdditionalOverheadWei,'0');});
+test('zero overhead budget at one wei below ceiling',()=>{const x=run('100000','54999');assert.equal(x.maximumAdditionalOverheadWei,'0');assert.equal(x.targetStillFeasible,true);});
+test('small baseline strict inequality',()=>{const x=run('1','0','1');assert.equal(x.maximumTotalCandidateWei,'0');assert.equal(x.targetStillFeasible,true);});
+test('non-divisible baseline',()=>{const x=run('101','0');assert.equal(x.maximumTotalCandidateWei,'55');});
+test('large integer exactness',()=>{const b='1000000000000000000000000000000';const x=run(b,'0');assert.equal(x.maximumTotalCandidateWei,'549999999999999999999999999999');});
+test('negative and noncanonical values rejected',()=>{assert.throws(()=>run('100','-1'),/canonical/);assert.throws(()=>run('0100','1'),/canonical/);});
+test('zero baseline or payment count rejected',()=>{assert.throws(()=>run('0','0'),/positive/);assert.throws(()=>run('100','1','0'),/positive/);});
+test('never claims verified savings',()=>{const x=run('100000','1000');assert.equal(x.verifiedAbove45Percent,false);assert.match(x.evidenceLevel,/MODELED/);});
