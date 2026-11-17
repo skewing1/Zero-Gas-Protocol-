@@ -155,7 +155,7 @@ contract SignedPayout7702 {
         bytes32 structHash = keccak256(abi.encode(
             BATCH_TYPEHASH, keccak256(abi.encodePacked(hashes)), expectedNonce, deadline
         ));
-        return keccak256(abi.encodePacked("\\x19\\x01", domainSeparator(), structHash));
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
     }
 
     function executeMany(
