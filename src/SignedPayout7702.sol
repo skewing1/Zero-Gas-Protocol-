@@ -4,15 +4,20 @@ pragma solidity ^0.8.26;
 /// @notice Experimental EIP-7702 delegate implementation for a single signed payout.
 /// @dev The EOA MUST separately authorize this implementation using the EIP-7702
 /// authorization tuple. This contract does not create/validate that tuple.
-/// Signature verification uses address(this), which is the delegated EOA in a
-/// 7702 call. Never use this implementation as a proxy or ordinary wallet.
+/// Signature verification uses address(this), the delegated EOA, and an
+/// immutable implementation-specific domain salt. Do not use as a proxy or wallet.
+/// IMPORTANT: replacing a delegate changes the signing domain; reverting to an
+/// old delegate restores its domain and stored nonce, so revoke old keys/intents.
 contract SignedPayout7702 {
     bytes32 private constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     bytes32 private constant INTENT_TYPEHASH =
         keccak256("Payout(address asset,address recipient,uint256 amount,uint256 nonce,uint256 deadline)");
     bytes32 private constant NAME_HASH = keccak256("ZeroGasSignedPayout");
-    bytes32 private constant VERSION_HASH = keccak256("1");
+    bytes32 private constant VERSION_HASH = keccak256("2");
+    // Each deployment embeds its own address in delegated runtime bytecode.
+    // Prevents old signatures from authorizing a different delegate implementation.
+    address private immutable IMPLEMENTATION = address(this);
     uint256 private constant SECP256K1_HALF_N =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     bytes32 private constant STORAGE_SLOT =
@@ -38,6 +43,8 @@ contract SignedPayout7702 {
     error Reentered();
     error TransferFailed();
     error ValueNotAllowed();
+    error OnlyAccount();
+    error NonceNotIncreasing();
 
     event PayoutExecuted(
         address indexed account, address indexed recipient, address indexed asset,
@@ -49,13 +56,32 @@ contract SignedPayout7702 {
         assembly { s.slot := slot }
     }
 
+    event NonceInvalidated(address indexed account, uint256 oldNonce, uint256 newNonce);
+
+    /// @notice The EOA owner may send a transaction FROM the account TO itself
+    /// to invalidate all pending signatures with smaller nonces. A relayer
+    /// cannot call this function on behalf of the owner.
+    /// @dev EIP-7702 delegated EOAs execute in their own storage context.
+    /// This does not invalidate signatures if delegation later switches to
+    /// an implementation with incompatible nonce storage or restores old state.
+    function invalidateNonce(uint256 newNonce) external {
+        if (msg.sender != address(this)) revert OnlyAccount();
+        State storage s = _state();
+        if (s.entered != 0) revert Reentered();
+        uint256 oldNonce = s.nonce;
+        if (newNonce <= oldNonce) revert NonceNotIncreasing();
+        s.nonce = newNonce;
+        emit NonceInvalidated(address(this), oldNonce, newNonce);
+    }
+
     function nonce() external view returns (uint256) {
         return _state().nonce;
     }
 
     function domainSeparator() public view returns (bytes32) {
         return keccak256(abi.encode(
-            DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)
+            DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this),
+            bytes32(uint256(uint160(IMPLEMENTATION)))
         ));
     }
 
