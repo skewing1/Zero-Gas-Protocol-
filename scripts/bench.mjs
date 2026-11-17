@@ -197,12 +197,12 @@ function markdown(groups) {
   const lines = [
     '# Receipt-based payout benchmarks', '',
     'Execution totals include approval where required. Deployment and prefunding are separately reported and must be included in lifecycle comparisons.',
-    'Fee per payment is rounded down to whole wei. Block counts use Anvil automining and start after setup.',
+    'Fee per payment is rounded down to whole wei. Lifecycle fee vs P0 includes deployment and prefunding receipts. Block counts use Anvil automining and start after setup.',
     'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
   ];
   for (const { workload, asset, paths } of groups) {
     lines.push('', `## ${workload} · ${asset}`, '',
-      '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
+      '| Path | Total gas | Total fee (wei) | Fee per payment (wei) | Lifecycle fee vs P0 | Tx count | Calldata bytes | Blocks to spendable |',
       '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
     for (const result of paths) {
       const { path, gas, feeWei, feePerPaymentWei, feeVsP0Percent, txCount, calldataBytes, blocksToSpendable } = result;
@@ -241,8 +241,14 @@ async function main() {
         try {
           const result = await run(workload, asset, path, sender, relayer);
           if (paths.length) assert.deepEqual(result.finalBalances, paths[0].finalBalances);
-          const baseline = BigInt(paths[0]?.feeWei ?? result.feeWei);
-          result.feeVsP0Percent = (Number((BigInt(result.feeWei) * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
+          const lifecycle = row => BigInt(row.feeWei) + BigInt(row.deployment.feeWei) + BigInt(row.prefunding.feeWei);
+          const baseline = lifecycle(paths[0] ?? result);
+          assert(baseline > 0n, 'Zero lifecycle baseline');
+          const candidate = lifecycle(result);
+          // Signed basis points preserve negative savings and avoid floating-point precision loss.
+          result.lifecycleSavingsBps = ((baseline - candidate) * 10000n / baseline).toString();
+          result.lifecycleFeeWei = candidate.toString();
+          result.feeVsP0Percent = (Number((candidate * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
           paths.push(result);
         } finally {
           assert(await rpc('evm_revert', snapshot), 'Could not restore Anvil state');
