@@ -28,6 +28,12 @@ contract SignedPayout7702 {
         uint256 entered;
     }
 
+    struct PayoutItem {
+        address asset;
+        address payable recipient;
+        uint256 amount;
+    }
+
     struct Payout {
         address asset; // address(0) = native ETH
         address payable recipient;
@@ -45,6 +51,13 @@ contract SignedPayout7702 {
     error ValueNotAllowed();
     error OnlyAccount();
     error NonceNotIncreasing();
+    error InvalidBatchLength();
+
+    bytes32 private constant ITEM_TYPEHASH = keccak256("PayoutItem(address asset,address recipient,uint256 amount)");
+    bytes32 private constant BATCH_TYPEHASH = keccak256("PayoutBatch(bytes32 payoutsHash,uint256 nonce,uint256 deadline)");
+    uint256 public constant MAX_BATCH_ITEMS = 64;
+
+    event BatchExecuted(address indexed account, uint256 indexed nonce, uint256 count, address relayer);
 
     event PayoutExecuted(
         address indexed account, address indexed recipient, address indexed asset,
@@ -121,6 +134,65 @@ contract SignedPayout7702 {
 
         s.entered = 0;
         emit PayoutExecuted(address(this), p.recipient, p.asset, p.amount, p.nonce, msg.sender);
+    }
+
+
+    /// @notice One owner signature authorizes an atomic, ordered group of payouts.
+    /// @dev EIP-712 PayoutBatch hashes ordered PayoutItem structs, not raw ABI
+    /// calldata. The signature is domain-bound to chain, EOA, and implementation.
+    /// Every item executes or the entire transaction reverts, including nonce.
+    function batchDigest(PayoutItem[] calldata items, uint256 expectedNonce, uint256 deadline)
+        public view returns (bytes32)
+    {
+        uint256 length = items.length;
+        if (length == 0 || length > MAX_BATCH_ITEMS) revert InvalidBatchLength();
+        bytes32[] memory hashes = new bytes32[](length);
+        for (uint256 i; i < length; ++i) {
+            hashes[i] = keccak256(abi.encode(
+                ITEM_TYPEHASH, items[i].asset, items[i].recipient, items[i].amount
+            ));
+        }
+        bytes32 structHash = keccak256(abi.encode(
+            BATCH_TYPEHASH, keccak256(abi.encodePacked(hashes)), expectedNonce, deadline
+        ));
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
+    }
+
+    function executeMany(
+        PayoutItem[] calldata items, uint256 expectedNonce, uint256 deadline, bytes calldata signature
+    ) external payable {
+        if (msg.value != 0) revert ValueNotAllowed();
+        State storage s = _state();
+        if (s.entered != 0) revert Reentered();
+        if (expectedNonce != s.nonce) revert InvalidNonce();
+        if (block.timestamp > deadline) revert Expired();
+        uint256 length = items.length;
+        if (length == 0 || length > MAX_BATCH_ITEMS) revert InvalidBatchLength();
+        for (uint256 i; i < length; ++i) {
+            if (items[i].recipient == address(0) || items[i].amount == 0) revert InvalidPayout();
+        }
+        if (_recover(batchDigest(items, expectedNonce, deadline), signature) != address(this)) {
+            revert InvalidSignature();
+        }
+        s.entered = 1;
+        s.nonce = expectedNonce + 1;
+        for (uint256 i; i < length; ++i) {
+            PayoutItem calldata p = items[i];
+            if (p.asset == address(0)) {
+                (bool ok,) = p.recipient.call{value: p.amount}("");
+                if (!ok) revert TransferFailed();
+            } else {
+                if (p.asset.code.length == 0) revert TransferFailed();
+                (bool ok, bytes memory data) = p.asset.call(
+                    abi.encodeWithSelector(0xa9059cbb, p.recipient, p.amount)
+                );
+                if (!ok || (data.length != 0 && (data.length != 32 || !abi.decode(data, (bool))))) {
+                    revert TransferFailed();
+                }
+            }
+        }
+        s.entered = 0;
+        emit BatchExecuted(address(this), expectedNonce, length, msg.sender);
     }
 
     function _recover(bytes32 h, bytes calldata sig) private pure returns (address signer) {
