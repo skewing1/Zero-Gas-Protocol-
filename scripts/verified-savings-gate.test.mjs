@@ -26,3 +26,14 @@ test('caller assertions cannot establish independent verification',()=>{
  assert.equal(result.verified,false);
  assert.equal(result.exceeds45Percent,true);
 });
+
+test('negative fractional basis points round toward loss, not zero',()=>{
+ const result=compareVerifiedRuns(run(30000,2),run(30001,3));
+ assert.equal(result.savingsBps,'-1');
+ assert.equal(result.exceeds45Percent,false);
+ assert.equal(result.verified,false);
+});
+test('positive fractional basis points do not round upward',()=>{
+ const result=compareVerifiedRuns(run(30000,2),run(29999,3));
+ assert.equal(result.savingsBps,'0');
+});
