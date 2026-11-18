@@ -29,3 +29,21 @@ test('adapter cannot turn unverified observations into a savings claim', () => {
   const run={...out,workloadHash:hash,paymentCount:1,extraCosts:extras};
   assert.throws(()=>compareVerifiedRuns(run,run),/Unverified payment outcomes or receipts/);
 });
+
+test('additional data fees are carried into gate dataWei', () => {
+  const out=prepareReceiptCosts('1',[{hash,receipt,fees:{additionalDataFeeWei:'25'}}],{dataWei:'7',relayerWei:'11'});
+  assert.equal(out.additionalDataWei,'25');
+  assert.equal(out.extraCosts.dataWei,'32');
+  assert.equal(out.extraCosts.relayerWei,'11');
+  assert.equal(out.extraCosts.settlementWei,'0');
+});
+test('receipt transaction identity must match observation hash', () => {
+  assert.throws(()=>prepareReceiptCosts('1',[{hash,receipt:{...receipt,transactionHash:'0x'+'cd'.repeat(32)}}]),/transaction hash mismatch/);
+});
+test('matching receipt transaction identity is accepted', () => {
+  assert.equal(prepareReceiptCosts('1',[{hash,receipt:{...receipt,transactionHash:hash.toUpperCase().replace('0X','0x')}}]).receipts.length,1);
+});
+test('invalid or unknown additional cost fails closed', () => {
+  assert.throws(()=>prepareReceiptCosts('1',[{hash,receipt}],{dataWei:'-1'}),/Invalid extra cost/);
+  assert.throws(()=>prepareReceiptCosts('1',[{hash,receipt}],{mysteryWei:'10'}),/Unknown extra cost/);
+});
