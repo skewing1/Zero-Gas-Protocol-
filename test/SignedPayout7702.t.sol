@@ -85,8 +85,9 @@ contract SignedPayout7702Test is Test {
     function testNoAttachedValue() public {
         SignedPayout7702.Payout memory p = _payout(0);
         vm.deal(address(this), 1 ether);
+        bytes memory signature = _sign(p);
         vm.expectRevert(SignedPayout7702.ValueNotAllowed.selector);
-        account.execute{value: 1}(p, _sign(p));
+        account.execute{value: 1}(p, signature);
     }
     function testDifferentImplementationRejectsOldSignature() public {
         SignedPayout7702.Payout memory p = _payout(0);
