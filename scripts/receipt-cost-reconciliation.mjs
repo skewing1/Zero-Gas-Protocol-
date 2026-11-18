@@ -20,7 +20,7 @@ export function reconcileReceiptCost(chainId, receipt, {l1FeeWei, blobFeeWei, ad
   if (hasBlobGas !== hasBlobPrice) throw new Error('Incomplete native blob fee receipt fields');
   const nativeBlob = hasBlobGas ? hexWei(receipt.blobGasUsed,'blobGasUsed') * hexWei(receipt.blobGasPrice,'blobGasPrice') : 0n;
   const blob = blobFeeWei === undefined ? nativeBlob : wei(blobFeeWei,'blobFeeWei');
-  if (blobFeeWei !== undefined && blob !== nativeBlob) throw new Error('Conflicting native blob fee');
+  if (blobFeeWei !== undefined && hasBlobGas && blob !== nativeBlob) throw new Error('Conflicting native blob fee');
   if (chainId === '1' && l1 !== 0n) throw new Error('Ethereum L1 data fee must not be added separately');
   const data = additionalDataFeeWei === undefined ? 0n : wei(additionalDataFeeWei,'additionalDataFeeWei');
   return Object.freeze({chainId,executionWei:execution.toString(),l1FeeWei:l1.toString(),blobFeeWei:blob.toString(),additionalDataFeeWei:data.toString(),totalObservedWei:(execution+l1+blob+data).toString(),costCoverageVerified:false,independentlyVerified:false});
