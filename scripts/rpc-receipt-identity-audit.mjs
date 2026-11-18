@@ -35,6 +35,10 @@ export async function auditReceiptIdentity(rpc, expected) {
   assert(hex(block.transactions[Number(index)],64) && same(block.transactions[Number(index)],expected.transactionHash), 'Block transaction inclusion mismatch');
   const canonical = await call(rpc, 'eth_getBlockByNumber', [receipt.blockNumber,false]);
   assert(canonical && hex(canonical.hash,64) && same(canonical.hash,receipt.blockHash), 'Receipt block not canonical at observation time');
+  assert(quantity(canonical.number) && BigInt(canonical.number) === BigInt(receipt.blockNumber), 'Canonical block height mismatch');
+  const canonicalRecheck = await call(rpc, 'eth_getBlockByNumber', [receipt.blockNumber,false]);
+  assert(canonicalRecheck && hex(canonicalRecheck.hash,64) && same(canonicalRecheck.hash,receipt.blockHash), 'Receipt block changed during audit');
+  assert(quantity(canonicalRecheck.number) && BigInt(canonicalRecheck.number) === BigInt(receipt.blockNumber), 'Rechecked canonical block height mismatch');
   return Object.freeze({
     chainId: BigInt(chainId).toString(),
     transactionHash: expected.transactionHash.toLowerCase(),
