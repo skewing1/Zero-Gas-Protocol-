@@ -19,3 +19,10 @@ test('reject unverified outcome',()=>{const c=run(40,3);c.outcomeVerified=false;
 
 test('reject receipt reused across baseline and candidate',()=>{const b=run(100,2);const c=run(40,2);assert.throws(()=>compareVerifiedRuns(b,c),/Reused receipt/);});
 test('reject case-insensitive receipt reuse',()=>{const b=run(100,0xab);const c=run(40,0xcd);c.receipts[0].hash=b.receipts[0].hash.toUpperCase().replace('0X','0x');assert.throws(()=>compareVerifiedRuns(b,c),/Reused receipt/);});
+
+test('caller assertions cannot establish independent verification',()=>{
+ const result=compareVerifiedRuns(run(100,2),run(40,3));
+ assert.equal(result.evidenceChecksPassed,true);
+ assert.equal(result.verified,false);
+ assert.equal(result.exceeds45Percent,true);
+});
