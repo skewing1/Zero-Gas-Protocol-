@@ -52,6 +52,15 @@ async function measure(hash, stage) {
   }
   assert.equal(receipt?.status, '0x1', `Transaction failed or was not mined: ${hash}`);
   const transaction = await rpc('eth_getTransactionByHash', hash);
+  // Never price a receipt from another transaction or a non-canonical block.
+  // Both lookups are from the same local RPC; independent RPC consensus is separate.
+  assert(transaction, `Missing mined transaction: ${hash}`);
+  assert.equal(receipt.transactionHash?.toLowerCase(), hash.toLowerCase(), 'Receipt hash mismatch');
+  assert.equal(transaction.hash?.toLowerCase(), hash.toLowerCase(), 'Transaction hash mismatch');
+  assert.equal(transaction.blockHash?.toLowerCase(), receipt.blockHash?.toLowerCase(), 'Receipt/transaction block mismatch');
+  assert.equal(BigInt(transaction.blockNumber), BigInt(receipt.blockNumber), 'Receipt/transaction height mismatch');
+  const canonicalBlock = await rpc('eth_getBlockByNumber', receipt.blockNumber, false);
+  assert.equal(canonicalBlock?.hash?.toLowerCase(), receipt.blockHash?.toLowerCase(), 'Receipt block is no longer canonical');
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
   // Non-blob receipts may expose a zero blobGasUsed field without a price.
