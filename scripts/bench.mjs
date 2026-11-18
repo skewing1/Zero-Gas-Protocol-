@@ -57,10 +57,19 @@ async function measure(hash, stage) {
   assert(transaction, `Missing mined transaction: ${hash}`);
   assert.equal(receipt.transactionHash?.toLowerCase(), hash.toLowerCase(), 'Receipt hash mismatch');
   assert.equal(transaction.hash?.toLowerCase(), hash.toLowerCase(), 'Transaction hash mismatch');
-  assert.equal(transaction.blockHash?.toLowerCase(), receipt.blockHash?.toLowerCase(), 'Receipt/transaction block mismatch');
-  assert.equal(BigInt(transaction.blockNumber), BigInt(receipt.blockNumber), 'Receipt/transaction height mismatch');
+  // Some Anvil versions omit mined blockHash/blockNumber on eth_getTransactionByHash.
+  // Check these fields when present; always verify inclusion in the canonical block.
+  if (transaction.blockHash != null) {
+    assert.equal(transaction.blockHash.toLowerCase(), receipt.blockHash?.toLowerCase(), 'Receipt/transaction block mismatch');
+  }
+  if (transaction.blockNumber != null) {
+    assert.equal(BigInt(transaction.blockNumber), BigInt(receipt.blockNumber), 'Receipt/transaction height mismatch');
+  }
   const canonicalBlock = await rpc('eth_getBlockByNumber', receipt.blockNumber, false);
   assert.equal(canonicalBlock?.hash?.toLowerCase(), receipt.blockHash?.toLowerCase(), 'Receipt block is no longer canonical');
+  assert(Array.isArray(canonicalBlock.transactions), 'Canonical block missing transaction list');
+  assert(canonicalBlock.transactions.some(txHash => txHash.toLowerCase() === hash.toLowerCase()),
+    'Mined transaction not included in canonical block');
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
   // Non-blob receipts may expose a zero blobGasUsed field without a price.
