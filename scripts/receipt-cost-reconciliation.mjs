@@ -13,7 +13,15 @@ export function reconcileReceiptCost(chainId, receipt, {l1FeeWei, blobFeeWei, ad
   if (chainId === '42161' && l1FeeWei !== undefined && wei(l1FeeWei,'l1FeeWei') !== 0n) throw new Error('Arbitrum L1 fee may already be included in gasUsed');
   const l1 = chainId === '8453' ? (l1FeeWei === undefined ? hexWei(receipt.l1Fee,'receipt.l1Fee') : wei(l1FeeWei,'l1FeeWei')) : (l1FeeWei === undefined ? 0n : wei(l1FeeWei,'l1FeeWei'));
   if (chainId === '8453' && receipt.l1Fee !== undefined && l1FeeWei !== undefined && hexWei(receipt.l1Fee,'receipt.l1Fee') !== l1) throw new Error('Conflicting Base L1 fees');
-  const blob = blobFeeWei === undefined ? 0n : wei(blobFeeWei,'blobFeeWei');
+  // EIP-4844 blob fees are charged outside gasUsed * effectiveGasPrice.
+  // Bind any supplied override to the actual mined receipt fields.
+  const hasBlobGas = receipt.blobGasUsed !== undefined;
+  const hasBlobPrice = receipt.blobGasPrice !== undefined;
+  if (hasBlobGas !== hasBlobPrice) throw new Error('Incomplete native blob fee receipt fields');
+  const nativeBlob = hasBlobGas ? hexWei(receipt.blobGasUsed,'blobGasUsed') * hexWei(receipt.blobGasPrice,'blobGasPrice') : 0n;
+  const blob = blobFeeWei === undefined ? nativeBlob : wei(blobFeeWei,'blobFeeWei');
+  if (blobFeeWei !== undefined && hasBlobGas && blob !== nativeBlob) throw new Error('Conflicting native blob fee');
+  if (chainId === '1' && l1 !== 0n) throw new Error('Ethereum L1 data fee must not be added separately');
   const data = additionalDataFeeWei === undefined ? 0n : wei(additionalDataFeeWei,'additionalDataFeeWei');
   return Object.freeze({chainId,executionWei:execution.toString(),l1FeeWei:l1.toString(),blobFeeWei:blob.toString(),additionalDataFeeWei:data.toString(),totalObservedWei:(execution+l1+blob+data).toString(),costCoverageVerified:false,independentlyVerified:false});
 }
