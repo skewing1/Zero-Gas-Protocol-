@@ -54,12 +54,17 @@ async function measure(hash, stage) {
   const transaction = await rpc('eth_getTransactionByHash', hash);
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
-  const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0);
+  const hasBlobGas = receipt.blobGasUsed != null;
+  const hasBlobPrice = receipt.blobGasPrice != null;
+  assert.equal(hasBlobGas, hasBlobPrice, 'Incomplete mined blob fee evidence');
+  const blobFee = hasBlobGas ? BigInt(receipt.blobGasUsed) * BigInt(receipt.blobGasPrice) : 0n;
+  const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0) + blobFee;
   return {
     stage, hash, from: transaction.from, to: transaction.to,
     gasUsed: Number(BigInt(receipt.gasUsed)),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
+    ...(hasBlobGas ? { blobGasUsed: receipt.blobGasUsed, blobGasPrice: receipt.blobGasPrice, blobFeeWei: blobFee.toString() } : {}),
     feeWei: fee.toString(),
     calldataBytes: input.length,
     zeroBytes,
