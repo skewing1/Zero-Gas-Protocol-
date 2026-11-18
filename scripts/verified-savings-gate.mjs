@@ -42,5 +42,5 @@ export function compareVerifiedRuns(baseline, candidate) {
   // Floor signed savings so a loss is never understated by truncation toward zero.
   const delta = (b - c) * 10000n;
   const savingsBps = delta >= 0n ? delta / b : -((-delta + b - 1n) / b);
-  return { baselineWei: b.toString(), candidateWei: c.toString(), savingsBps: savingsBps.toString(), exceeds45Percent: c * 100n < b * 55n, evidenceChecksPassed: true, verified: false };
+  return { baselineWei: b.toString(), candidateWei: c.toString(), savingsBps: savingsBps.toString(), exceeds45Percent: c * 100n < b * 55n, modeledExceeds45Percent: c * 100n < b * 55n, claimableSavingsAbove45Percent: false, evidenceChecksPassed: true, verified: false };
 }
