@@ -56,10 +56,20 @@ async function measure(hash, stage) {
   const zeroBytes = input.filter(byte => byte === 0).length;
   // Non-blob receipts may expose a zero blobGasUsed field without a price.
   // Only positive blob gas requires a mined blob gas price.
-  const blobGasUsed = receipt.blobGasUsed == null ? 0n : BigInt(receipt.blobGasUsed);
+  // Preserve the transaction hash and receipt fee fields when a provider returns
+  // unexpected data. This is essential for diagnosing failed real-EVM runs.
+  const receiptContext = { hash, stage, gasUsed: receipt.gasUsed,
+    effectiveGasPrice: receipt.effectiveGasPrice, l1Fee: receipt.l1Fee,
+    blobGasUsed: receipt.blobGasUsed, blobGasPrice: receipt.blobGasPrice };
+  let blobGasUsed;
+  try {
+    blobGasUsed = receipt.blobGasUsed == null ? 0n : BigInt(receipt.blobGasUsed);
+  } catch (error) {
+    throw new Error(`Invalid mined blobGasUsed: ${JSON.stringify(receiptContext)}`, { cause: error });
+  }
   const hasBlobPrice = receipt.blobGasPrice != null;
-  assert(blobGasUsed === 0n || hasBlobPrice, 'Positive blob gas without mined blob price');
-  assert(receipt.blobGasUsed != null || !hasBlobPrice, 'Blob price without mined blob gas');
+  assert(blobGasUsed === 0n || hasBlobPrice, `Positive blob gas without mined blob price: ${JSON.stringify(receiptContext)}`);
+  assert(receipt.blobGasUsed != null || !hasBlobPrice, `Blob price without mined blob gas: ${JSON.stringify(receiptContext)}`);
   const blobFee = blobGasUsed * (hasBlobPrice ? BigInt(receipt.blobGasPrice) : 0n);
   const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0) + blobFee;
   return {
@@ -206,7 +216,7 @@ function markdown(groups) {
     '# Receipt-based payout benchmarks', '',
     'Execution totals include approval where required. Deployment and prefunding are separately reported and must be included in lifecycle comparisons.',
     'Fee per payment is rounded down to whole wei. Lifecycle fee vs P0 includes deployment and prefunding receipts. Block counts use Anvil automining and start after setup.',
-    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, blob fees, and off-chain operations.',
+    'Excluded costs include signatures, sponsorship / ERC-4337, cross-chain settlement, and off-chain operations. Mined blob fees are included when reported in transaction receipts.',
   ];
   for (const { workload, asset, paths } of groups) {
     lines.push('', `## ${workload} · ${asset}`, '',
