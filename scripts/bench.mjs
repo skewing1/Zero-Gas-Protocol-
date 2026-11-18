@@ -54,17 +54,20 @@ async function measure(hash, stage) {
   const transaction = await rpc('eth_getTransactionByHash', hash);
   const input = Buffer.from(transaction.input.slice(2), 'hex');
   const zeroBytes = input.filter(byte => byte === 0).length;
-  const hasBlobGas = receipt.blobGasUsed != null;
+  // Non-blob receipts may expose a zero blobGasUsed field without a price.
+  // Only positive blob gas requires a mined blob gas price.
+  const blobGasUsed = receipt.blobGasUsed == null ? 0n : BigInt(receipt.blobGasUsed);
   const hasBlobPrice = receipt.blobGasPrice != null;
-  assert.equal(hasBlobGas, hasBlobPrice, 'Incomplete mined blob fee evidence');
-  const blobFee = hasBlobGas ? BigInt(receipt.blobGasUsed) * BigInt(receipt.blobGasPrice) : 0n;
+  assert(blobGasUsed === 0n || hasBlobPrice, 'Positive blob gas without mined blob price');
+  assert(receipt.blobGasUsed != null || !hasBlobPrice, 'Blob price without mined blob gas');
+  const blobFee = blobGasUsed * (hasBlobPrice ? BigInt(receipt.blobGasPrice) : 0n);
   const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0) + blobFee;
   return {
     stage, hash, from: transaction.from, to: transaction.to,
     gasUsed: Number(BigInt(receipt.gasUsed)),
     effectiveGasPrice: BigInt(receipt.effectiveGasPrice).toString(),
     ...(receipt.l1Fee == null ? {} : { l1Fee: BigInt(receipt.l1Fee).toString() }),
-    ...(hasBlobGas ? { blobGasUsed: receipt.blobGasUsed, blobGasPrice: receipt.blobGasPrice, blobFeeWei: blobFee.toString() } : {}),
+    ...(receipt.blobGasUsed != null || hasBlobPrice ? { blobGasUsed: receipt.blobGasUsed ?? '0x0', ...(hasBlobPrice ? { blobGasPrice: receipt.blobGasPrice } : {}), blobFeeWei: blobFee.toString() } : {}),
     feeWei: fee.toString(),
     calldataBytes: input.length,
     zeroBytes,
