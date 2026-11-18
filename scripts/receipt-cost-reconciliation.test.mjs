@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {reconcileReceiptCost} from './receipt-cost-reconciliation.mjs';
+const receipt = {status:'0x1',gasUsed:'0x5208',effectiveGasPrice:'0x2'};
+test('Ethereum execution fee is exact',()=>assert.equal(reconcileReceiptCost('1',receipt).totalObservedWei,'42000'));
+test('Base missing L1 fee fails closed',()=>assert.throws(()=>reconcileReceiptCost('8453',receipt),/Missing Base/));
+test('Base receipt L1 fee is included',()=>assert.equal(reconcileReceiptCost('8453',{...receipt,l1Fee:'0x64'}).totalObservedWei,'42100'));
+test('Base conflicting L1 fee rejected',()=>assert.throws(()=>reconcileReceiptCost('8453',{...receipt,l1Fee:'0x64'},{l1FeeWei:'101'}),/Conflicting/));
+test('Arbitrum avoids poster-fee double count',()=>assert.throws(()=>reconcileReceiptCost('42161',receipt,{l1FeeWei:'1'}),/already be included/));
+test('Arbitrum execution is recorded without claiming completeness',()=>{const x=reconcileReceiptCost('42161',receipt);assert.equal(x.totalObservedWei,'42000');assert.equal(x.costCoverageVerified,false)});
+test('additional costs are included',()=>assert.equal(reconcileReceiptCost('1',receipt,{blobFeeWei:'3',additionalDataFeeWei:'7'}).totalObservedWei,'42010'));
+test('rejects invalid fees and failed receipts',()=>{assert.throws(()=>reconcileReceiptCost('1',{...receipt,gasUsed:'-1'}),/gasUsed/);assert.throws(()=>reconcileReceiptCost('1',{...receipt,status:'0x0'}),/Unsuccessful/)});
