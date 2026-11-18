@@ -37,3 +37,16 @@ test('positive fractional basis points do not round upward',()=>{
  const result=compareVerifiedRuns(run(30000,2),run(29999,3));
  assert.equal(result.savingsBps,'0');
 });
+
+test('modeled savings cannot be represented as independently claimable',()=>{
+ const result=compareVerifiedRuns(run(100,2),run(40,3));
+ assert.equal(result.modeledExceeds45Percent,true);
+ assert.equal(result.exceeds45Percent,true); // legacy arithmetic field, not proof
+ assert.equal(result.claimableSavingsAbove45Percent,false);
+ assert.equal(result.verified,false);
+});
+test('failed modeled threshold also cannot be claimed',()=>{
+ const result=compareVerifiedRuns(run(100,2),run(120,3));
+ assert.equal(result.modeledExceeds45Percent,false);
+ assert.equal(result.claimableSavingsAbove45Percent,false);
+});
