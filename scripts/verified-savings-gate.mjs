@@ -40,5 +40,5 @@ export function compareVerifiedRuns(baseline, candidate) {
   if (candidate.receipts.some(r => baselineHashes.has(r.hash.toLowerCase()))) throw new Error('Reused receipt across benchmark arms');
   if (b === 0n) throw new Error('Zero baseline cost');
   const savingsBps = ((b - c) * 10000n) / b;
-  return { baselineWei: b.toString(), candidateWei: c.toString(), savingsBps: savingsBps.toString(), exceeds45Percent: c * 100n < b * 55n, verified: true };
+  return { baselineWei: b.toString(), candidateWei: c.toString(), savingsBps: savingsBps.toString(), exceeds45Percent: c * 100n < b * 55n, evidenceChecksPassed: true, verified: false };
 }
