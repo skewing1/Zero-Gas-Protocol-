@@ -69,7 +69,9 @@ async function measure(hash, stage) {
   }
   const hasBlobPrice = receipt.blobGasPrice != null;
   assert(blobGasUsed === 0n || hasBlobPrice, `Positive blob gas without mined blob price: ${JSON.stringify(receiptContext)}`);
-  assert(receipt.blobGasUsed != null || !hasBlobPrice, `Blob price without mined blob gas: ${JSON.stringify(receiptContext)}`);
+  // Some Cancun RPC providers expose a blob base price even for non-blob transactions.
+  // With no blob gas used, that price adds exactly zero fee; do not reject it.
+  // Positive blob gas still requires an explicit mined price (checked above).
   const blobFee = blobGasUsed * (hasBlobPrice ? BigInt(receipt.blobGasPrice) : 0n);
   const fee = BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) + BigInt(receipt.l1Fee ?? 0) + blobFee;
   return {
