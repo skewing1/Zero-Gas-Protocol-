@@ -33,3 +33,16 @@ for (const [name, mutate] of [
   ['RPC error',f=>f.rpc=async()=>({error:{message:'offline'}})],
   ['missing block transactions',f=>delete f.responses.eth_getBlockByHash.transactions],
 ]) test('rejects '+name,async()=>{const f=fixture();mutate(f);await assert.rejects(auditReceiptIdentity(f.rpc,f.expected));});
+
+test('rejects canonical header with incorrect height',async()=>{
+  const f=fixture();f.responses.eth_getBlockByNumber.number='0xb';
+  await assert.rejects(auditReceiptIdentity(f.rpc,f.expected),/Canonical block height mismatch/);
+});
+test('rejects canonical reorganization between successive reads',async()=>{
+  const f=fixture();let reads=0;const original=f.rpc;
+  f.rpc=async (method,params)=>{
+    if(method==='eth_getBlockByNumber' && ++reads===2) return {jsonrpc:'2.0',id:1,result:{hash:h(3),number:'0xa'}};
+    return original(method,params);
+  };
+  await assert.rejects(auditReceiptIdentity(f.rpc,f.expected),/changed during audit/);
+});
