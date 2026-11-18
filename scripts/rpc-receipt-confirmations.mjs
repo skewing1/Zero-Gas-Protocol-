@@ -22,6 +22,11 @@ export async function auditReceiptConfirmations(rpc,expected,{minimumConfirmatio
   requireValue(quantity(block.number)&&BigInt(block.number)===height,'Canonical height changed after depth check');
   const latestAgain=await read(rpc,'eth_blockNumber',[]);
   requireValue(quantity(latestAgain)&&BigInt(latestAgain)>=head,'Chain head regressed during confirmation check');
+  // A head observation can race with a reorg. Recheck the receipt's canonical
+  // block after the final head read; this remains an observation, not finality.
+  const canonicalAfterHead=await read(rpc,'eth_getBlockByNumber',['0x'+height.toString(16),false]);
+  requireValue(canonicalAfterHead && typeof canonicalAfterHead.hash==='string' && canonicalAfterHead.hash.toLowerCase()===identity.blockHash,'Canonical block changed after head observation');
+  requireValue(quantity(canonicalAfterHead.number)&&BigInt(canonicalAfterHead.number)===height,'Canonical height changed after head observation');
   return Object.freeze({...identity,observedHead:head.toString(),observedConfirmations:confirmations.toString(),
     minimumConfirmations,confirmationDepthPassed:true,finalityVerified:false,independentlyVerified:false});
 }

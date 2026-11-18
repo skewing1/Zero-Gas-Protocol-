@@ -49,3 +49,20 @@ for(const bad of [0,-1,1.5,Number.MAX_SAFE_INTEGER+1])
  test('rejects invalid confirmation threshold '+bad,async()=>{
   const f=fixture();await assert.rejects(auditReceiptConfirmations(f.rpc,f.expected,{minimumConfirmations:bad}),/Invalid minimum/);
  });
+
+test('rejects canonical reorg after the final head observation',async()=>{
+ const f=fixture();let reads=0;const original=f.rpc;
+ f.rpc=async(method,params)=>{
+  if(method==='eth_getBlockByNumber'&&++reads===4)return {result:{hash:h(3),number:'0xa'}};
+  return original(method,params);
+ };
+ await assert.rejects(auditReceiptConfirmations(f.rpc,f.expected),/Canonical block changed after head observation/);
+});
+test('rejects wrong canonical height after the final head observation',async()=>{
+ const f=fixture();let reads=0;const original=f.rpc;
+ f.rpc=async(method,params)=>{
+  if(method==='eth_getBlockByNumber'&&++reads===4)return {result:{hash:h(2),number:'0xb'}};
+  return original(method,params);
+ };
+ await assert.rejects(auditReceiptConfirmations(f.rpc,f.expected),/Canonical height changed after head observation/);
+});
