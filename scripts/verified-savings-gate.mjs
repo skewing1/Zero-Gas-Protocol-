@@ -35,6 +35,9 @@ export function compareVerifiedRuns(baseline, candidate) {
   const b = requireEvidence(baseline);
   const c = requireEvidence(candidate);
   if (baseline.chainId !== candidate.chainId || baseline.workloadHash.toLowerCase() !== candidate.workloadHash.toLowerCase() || baseline.paymentCount !== candidate.paymentCount) throw new Error('Non-equivalent workloads');
+  // The same transaction cannot independently evidence both benchmark arms.
+  const baselineHashes = new Set(baseline.receipts.map(r => r.hash.toLowerCase()));
+  if (candidate.receipts.some(r => baselineHashes.has(r.hash.toLowerCase()))) throw new Error('Reused receipt across benchmark arms');
   if (b === 0n) throw new Error('Zero baseline cost');
   const savingsBps = ((b - c) * 10000n) / b;
   return { baselineWei: b.toString(), candidateWei: c.toString(), savingsBps: savingsBps.toString(), exceeds45Percent: c * 100n < b * 55n, verified: true };
