@@ -12,3 +12,8 @@ test('rejects malformed signature scalar',()=>{const x=tx();x.authorizationList[
 test('rejects invalid parity',()=>{const x=tx();x.authorizationList[0].yParity='0x2';assert.throws(()=>inspectType4Transaction(x,'0x7a69'),/yParity/)});
 test('rejects reverted receipt',async()=>{const rpc=async m=>m==='eth_chainId'?'0x7a69':m==='eth_getTransactionByHash'?tx():{transactionHash:h,type:'0x4',status:'0x0',blockHash:b};await assert.rejects(()=>inspectMinedType4({rpc,transactionHash:h}),/reverted/)});
 test('accepts matching mined evidence without claiming savings',async()=>{const rpc=async m=>m==='eth_chainId'?'0x7a69':m==='eth_getTransactionByHash'?tx():{transactionHash:h,type:'0x4',status:'0x1',blockHash:b};assert.equal((await inspectMinedType4({rpc,transactionHash:h})).claimableSavings,false)});
+
+test('rejects zero scalar even when encoded as 32 bytes',()=>{const x=tx();x.authorizationList[0].r='0x'+'0'.repeat(64);assert.throws(()=>inspectType4Transaction(x,'0x7a69'),/scalar range/)});
+test('rejects scalar equal to secp256k1 group order',()=>{const x=tx();x.authorizationList[0].r='0x'+'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';assert.throws(()=>inspectType4Transaction(x,'0x7a69'),/scalar range/)});
+test('rejects scalar above secp256k1 group order',()=>{const x=tx();x.authorizationList[0].s='0x'+'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364142';assert.throws(()=>inspectType4Transaction(x,'0x7a69'),/scalar range/)});
+test('accepts maximal scalar below secp256k1 order structurally',()=>{const x=tx();x.authorizationList[0].r='0x'+'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140';assert.equal(inspectType4Transaction(x,'0x7a69').signatureVerified,false)});
