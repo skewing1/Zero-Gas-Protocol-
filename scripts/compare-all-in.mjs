@@ -8,6 +8,7 @@ export function compareAllIn({baseline,candidate,thresholdBps=4500}){
   assert(/^[1-9][0-9]*$/.test(baseline?.chainId??''),'Invalid chain ID');
   assert(/^0x[0-9a-fA-F]{64}$/.test(baseline?.outcomeDigest??''),'Missing outcome digest');
   assert(baseline.outcomeDigest.toLowerCase()===candidate?.outcomeDigest?.toLowerCase(),'Different payment outcomes');
+  const observedHashes=new Set();
   function total(side,name){
     assert(Array.isArray(side.receipts)&&side.receipts.length>0,name+' receipt evidence missing');
     const hashes=new Set();let cost=0n;
@@ -15,6 +16,7 @@ export function compareAllIn({baseline,candidate,thresholdBps=4500}){
       assert(/^0x[0-9a-fA-F]{64}$/.test(r.transactionHash??''),name+' invalid transaction hash');
       const h=r.transactionHash.toLowerCase();
       assert(!hashes.has(h),name+' duplicate transaction hash');hashes.add(h);
+      assert(!observedHashes.has(h),'Receipt reused across baseline and candidate');observedHashes.add(h);
       assert(r.canonical===true&&r.success===true,name+' receipt not verified successful and canonical');
       for(const field of ['executionWei','blobWei','dataWei'])cost+=wei(r[field],name+' '+field);
     }
