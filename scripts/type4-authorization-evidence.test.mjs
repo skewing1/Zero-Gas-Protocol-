@@ -68,3 +68,50 @@ test('rejects canonical block changing during inspection',async()=>{
 test('rejects invalid confirmation policy',async()=>{
  await assert.rejects(()=>inspectMinedType4({rpc:canonicalRpc(),transactionHash:h,minConfirmations:0}),/Invalid minimum confirmations/);
 });
+
+test('rejects same-height head hash replacement during inspection',async()=>{
+ let heads=0;
+ const rpc=async(method,args)=>{
+  if(method==='eth_chainId')return '0x7a69';
+  if(method==='eth_getTransactionByHash')return tx();
+  if(method==='eth_getTransactionReceipt')return receipt();
+  if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
+  if(method==='eth_getBlockByNumber'){
+   if(args[0]==='latest')return {number:'0x2',hash:'0x'+(++heads===1?'a':'c').repeat(64)};
+   return {number:'0x1',hash:b};
+  }
+  throw Error('unexpected method');
+ };
+ await assert.rejects(()=>inspectMinedType4({rpc,transactionHash:h}),/head changed/);
+});
+test('rejects chain tip height regression during inspection',async()=>{
+ let heads=0;
+ const rpc=async(method,args)=>{
+  if(method==='eth_chainId')return '0x7a69';
+  if(method==='eth_getTransactionByHash')return tx();
+  if(method==='eth_getTransactionReceipt')return receipt();
+  if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
+  if(method==='eth_getBlockByNumber'){
+   if(args[0]==='latest')return {number:++heads===1?'0x3':'0x2',hash:'0x'+'a'.repeat(64)};
+   return {number:'0x1',hash:b};
+  }
+  throw Error('unexpected method');
+ };
+ await assert.rejects(()=>inspectMinedType4({rpc,transactionHash:h}),/height regressed/);
+});
+test('allows ordinary tip extension while retaining conservative evidence flags',async()=>{
+ let heads=0;
+ const rpc=async(method,args)=>{
+  if(method==='eth_chainId')return '0x7a69';
+  if(method==='eth_getTransactionByHash')return tx();
+  if(method==='eth_getTransactionReceipt')return receipt();
+  if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
+  if(method==='eth_getBlockByNumber'){
+   if(args[0]==='latest')return {number:++heads===1?'0x2':'0x3',hash:'0x'+'a'.repeat(64)};
+   return {number:'0x1',hash:b};
+  }
+  throw Error('unexpected method');
+ };
+ const evidence=await inspectMinedType4({rpc,transactionHash:h,minConfirmations:2});
+ assert.equal(evidence.claimableSavings,false);
+});

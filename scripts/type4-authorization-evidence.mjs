@@ -64,7 +64,15 @@ export async function inspectMinedType4({rpc,transactionHash,minConfirmations=1}
  const tip=quantity(head.number,'head number');
  assert(tip>=height && tip-height+1n>=BigInt(minConfirmations),'Insufficient confirmations');
  const evidence=inspectType4Transaction(tx,chainId);
- const again=await rpc('eth_getBlockByNumber',[receipt.blockNumber,false]);
+ const [again,headAgain]=await Promise.all([
+  rpc('eth_getBlockByNumber',[receipt.blockNumber,false]),
+  rpc('eth_getBlockByNumber',['latest',false])
+ ]);
  assert(again&&typeof again.hash==='string'&&again.hash.toLowerCase()===receipt.blockHash.toLowerCase(),'Receipt block changed during inspection');
+ assert(headAgain&&typeof headAgain.hash==='string'&&/^0x[0-9a-fA-F]{64}$/.test(headAgain.hash),'Canonical head missing on recheck');
+ const tipAgain=quantity(headAgain.number,'rechecked head number');
+ assert(tipAgain>=tip,'Chain head height regressed during inspection');
+ if(tipAgain===tip) assert(headAgain.hash.toLowerCase()===head.hash.toLowerCase(),'Chain head changed during inspection');
+ assert(tipAgain>=height && tipAgain-height+1n>=BigInt(minConfirmations),'Confirmations lost during inspection');
  return {...evidence,transactionHash:transactionHash.toLowerCase(),blockHash:receipt.blockHash.toLowerCase(),claimableSavings:false};
 }
