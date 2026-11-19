@@ -38,3 +38,27 @@ test('rejects duplicated receipts',()=>{
  const x=fixture();x.candidateCapture.receipts.push({...x.candidateCapture.receipts[0]});
  assert.throws(()=>compareWindowBoundPayments(x),/duplicate receipt/);
 });
+
+test('rejects receipts from conflicting forks at the same intermediate height',()=>{
+ const x=fixture();
+ x.candidateCapture.receipts[0].blockNumber='11';
+ x.candidateCapture.receipts[0].blockHash=h(111);
+ x.candidateCapture.receipts.push({...x.candidateCapture.receipts[0],transactionHash:h(3),blockHash:h(222)});
+ assert.throws(()=>compareWindowBoundPayments(x),/conflicting block hashes at same height/);
+});
+test('accepts multiple distinct receipts with one intermediate block hash',()=>{
+ const x=fixture();
+ x.candidateCapture.receipts[0].blockNumber='11';
+ x.candidateCapture.receipts[0].blockHash=h(111);
+ x.candidateCapture.receipts.push({...x.candidateCapture.receipts[0],transactionHash:h(3)});
+ const result=compareWindowBoundPayments(x);
+ assert.equal(result.candidateWindow.receiptCount,2);
+ assert.equal(result.claimableSavings,false);
+});
+test('normalizes block hash casing when checking same-height consistency',()=>{
+ const x=fixture();
+ x.candidateCapture.receipts[0].blockNumber='11';
+ x.candidateCapture.receipts[0].blockHash='0x'+'ab'.repeat(32);
+ x.candidateCapture.receipts.push({...x.candidateCapture.receipts[0],transactionHash:h(3),blockHash:'0x'+'AB'.repeat(32)});
+ assert.equal(compareWindowBoundPayments(x).candidateWindow.receiptCount,2);
+});
