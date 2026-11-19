@@ -24,7 +24,13 @@ export async function audit7702(rpc, hash) {
     assert(BigInt(a.chainId) === 0n || BigInt(a.chainId) === BigInt(tx.chainId),
       'Authorization chain mismatch');
     assert(BigInt(a.yParity) === 0n || BigInt(a.yParity) === 1n, 'Invalid parity');
-    assert(BigInt(a.r) > 0n && BigInt(a.s) > 0n, 'Empty authorization signature');
+    // secp256k1 scalar validity: EIP-7702 authorization signatures must be
+    // canonical low-s signatures, not merely nonzero byte strings.
+    const curveN = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+    const r = BigInt(a.r), s = BigInt(a.s);
+    assert(r > 0n && r < curveN, 'Authorization r outside secp256k1 range');
+    assert(s > 0n && s <= curveN / 2n, 'Authorization s not canonical low-s');
+    assert(BigInt(a.nonce) >= 0n, 'Negative authorization nonce');
   }
   // A receipt and transaction must identify the same mined block when the
   // provider exposes transaction block fields. Never infer zero from missing data.
