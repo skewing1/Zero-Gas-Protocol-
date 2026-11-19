@@ -30,7 +30,8 @@ export function inspectType4Transaction(tx,expectedChainId){
  return {transactionType:'4',authorizationCount:authorizations.length,authorizations,signatureVerified:false,executionVerified:false};
 }
 /** Read-only preflight; pair with canonical receipt costs and independent balance deltas. */
-export async function inspectMinedType4({rpc,transactionHash}){
+export async function inspectMinedType4({rpc,transactionHash,minConfirmations=1}){
+ assert(Number.isSafeInteger(minConfirmations)&&minConfirmations>=1&&minConfirmations<=2048,'Invalid minimum confirmations');
  assert(typeof rpc==='function','RPC function required');
  assert(typeof transactionHash==='string'&&/^0x[0-9a-fA-F]{64}$/.test(transactionHash),'Invalid transaction hash');
  const [chainId,tx,receipt]=await Promise.all([rpc('eth_chainId',[]),rpc('eth_getTransactionByHash',[transactionHash]),rpc('eth_getTransactionReceipt',[transactionHash])]);
@@ -51,6 +52,19 @@ export async function inspectMinedType4({rpc,transactionHash}){
  const index=quantity(receipt.transactionIndex,'receipt transactionIndex');
  assert(index<BigInt(block.transactions.length),'Transaction index outside block');
  assert(typeof block.transactions[Number(index)]==='string'&&block.transactions[Number(index)].toLowerCase()===transactionHash.toLowerCase(),'Transaction absent at mined block index');
+ // A block returned by hash need not belong to the current canonical chain.
+ // Check the canonical height mapping and tip, then recheck after inspection.
+ const height=quantity(receipt.blockNumber,'receipt blockNumber');
+ const [canonical,head]=await Promise.all([
+  rpc('eth_getBlockByNumber',[receipt.blockNumber,false]),
+  rpc('eth_getBlockByNumber',['latest',false])
+ ]);
+ assert(canonical&&typeof canonical.hash==='string'&&canonical.hash.toLowerCase()===receipt.blockHash.toLowerCase(),'Receipt block is not canonical at its height');
+ assert(head&&typeof head.hash==='string'&&/^0x[0-9a-fA-F]{64}$/.test(head.hash),'Canonical head missing');
+ const tip=quantity(head.number,'head number');
+ assert(tip>=height && tip-height+1n>=BigInt(minConfirmations),'Insufficient confirmations');
  const evidence=inspectType4Transaction(tx,chainId);
+ const again=await rpc('eth_getBlockByNumber',[receipt.blockNumber,false]);
+ assert(again&&typeof again.hash==='string'&&again.hash.toLowerCase()===receipt.blockHash.toLowerCase(),'Receipt block changed during inspection');
  return {...evidence,transactionHash:transactionHash.toLowerCase(),blockHash:receipt.blockHash.toLowerCase(),claimableSavings:false};
 }
