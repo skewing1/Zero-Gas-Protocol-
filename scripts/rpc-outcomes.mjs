@@ -34,11 +34,28 @@ export async function captureRecipientBalances({rpc,blockNumber,asset='native',r
  assert(quantity(await rpc('eth_chainId',[]))===chainId,'RPC chain changed');
  return {chainId:chainId.toString(),asset:token,blockNumber:quantity(blockNumber).toString(),blockHash,recipients:balances,verifiedByTool:false};
 }
+// Validate untrusted snapshots before deriving recipient deltas. A digest alone is not proof.
+function validateSnapshot(s){
+ assert(s&&typeof s==='object','Snapshot required');
+ assert(typeof s.chainId==='string'&&/^[1-9][0-9]*$/.test(s.chainId),'Invalid snapshot chain');
+ assert(s.asset==='native'||(typeof s.asset==='string'&&/^0x[0-9a-f]{40}$/.test(s.asset)),'Invalid snapshot asset');
+ assert(typeof s.blockNumber==='string'&&/^(0|[1-9][0-9]*)$/.test(s.blockNumber),'Invalid snapshot height');
+ assert(typeof s.blockHash==='string'&&/^0x[0-9a-f]{64}$/.test(s.blockHash),'Invalid snapshot block hash');
+ assert(Array.isArray(s.recipients)&&s.recipients.length>0,'Invalid snapshot recipients');
+ const seen=new Set();
+ for(const r of s.recipients){
+  assert(r&&typeof r.address==='string'&&/^0x[0-9a-f]{40}$/.test(r.address),'Invalid snapshot recipient address');
+  assert(!seen.has(r.address),'Duplicate snapshot recipient');
+  seen.add(r.address);
+  assert(typeof r.balance==='string'&&/^(0|[1-9][0-9]*)$/.test(r.balance),'Invalid snapshot balance');
+ }
+}
 export function pairSnapshots(before,after){
+ validateSnapshot(before);validateSnapshot(after);
  assert(before.chainId===after.chainId&&before.asset===after.asset,'Chain/asset mismatch');
  assert(BigInt(before.blockNumber)<BigInt(after.blockNumber),'Non-increasing block heights');
+ assert(before.blockHash!==after.blockHash,'Identical block hash at distinct heights');
  const earlier=new Map(before.recipients.map(x=>[x.address,x.balance]));
- assert(earlier.size===before.recipients.length,'Duplicate before recipient');
  assert(after.recipients.length===earlier.size,'Recipient count mismatch');
  const seen=new Set();
  const recipients=after.recipients.map(x=>{
