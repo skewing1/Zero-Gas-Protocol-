@@ -24,3 +24,10 @@ test('local data fee exemption restricted to local chains',async()=>{
 });
 test('charges blob gas when present',async()=>{const x=await captureReceiptCosts({rpc:mock({receipt:{blobGasUsed:'0x2',blobGasPrice:'0x5'}}),transactionHashes:[H]});assert.equal(x.receipts[0].blobWei,'10')});
 test('rejects negative or malformed fee fields',async()=>{await assert.rejects(captureReceiptCosts({rpc:mock({receipt:{l1Fee:'-1'}}),transactionHashes:[H]}),/l1Fee/)});
+
+test('rejects transaction chain ID inconsistent with RPC',async()=>{await assert.rejects(captureReceiptCosts({rpc:mock({tx:{chainId:'0x1'}}),transactionHashes:[H]}),/chain mismatch/)});
+test('accepts matching transaction chain ID',async()=>{const x=await captureReceiptCosts({rpc:mock({tx:{chainId:'0x14a34'}}),transactionHashes:[H]});assert.equal(x.receipts.length,1)});
+test('rejects receipt gas exceeding transaction limit',async()=>{await assert.rejects(captureReceiptCosts({rpc:mock({tx:{gas:'0x5207'}}),transactionHashes:[H]}),/exceeds transaction gas limit/)});
+test('accepts receipt gas within transaction limit',async()=>{const x=await captureReceiptCosts({rpc:mock({tx:{gas:'0x5208'}}),transactionHashes:[H]});assert.equal(x.receipts[0].executionWei,'63000')});
+test('rejects inconsistent receipt transaction type',async()=>{await assert.rejects(captureReceiptCosts({rpc:mock({tx:{type:'0x4'},receipt:{type:'0x2'}}),transactionHashes:[H]}),/type mismatch/)});
+test('accepts matching type-4 receipt and transaction',async()=>{const x=await captureReceiptCosts({rpc:mock({tx:{type:'0x4'},receipt:{type:'0x4'}}),transactionHashes:[H]});assert.equal(x.receipts.length,1)});

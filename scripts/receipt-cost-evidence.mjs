@@ -19,6 +19,8 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   assert(hash(receipt.transactionHash,'receipt transaction hash')===transactionHash,'Receipt transaction mismatch');
   assert(hash(tx.hash,'transaction hash')===transactionHash,'Transaction mismatch');
   assert(qty(receipt.status,'status')===1n,'Transaction failed');
+  if(tx.chainId!=null)assert(qty(tx.chainId,'transaction chainId')===chainId,'Transaction chain mismatch');
+  if(tx.type!=null&&receipt.type!=null)assert(qty(tx.type,'transaction type')===qty(receipt.type,'receipt type'),'Transaction type mismatch');
   const blockHash=hash(receipt.blockHash,'receipt block hash');
   const height=qty(receipt.blockNumber,'receipt block number');
   if(tx.blockHash!=null)assert(hash(tx.blockHash,'transaction block hash')===blockHash,'Transaction block mismatch');
@@ -29,7 +31,9 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   const index=qty(receipt.transactionIndex,'transaction index');
   assert(index<BigInt(block.transactions.length)&&hash(block.transactions[Number(index)],'canonical transaction')===transactionHash,'Receipt transaction position mismatch');
   if(tx.transactionIndex!=null)assert(qty(tx.transactionIndex,'transaction index')===index,'Transaction index mismatch');
-  const executionWei=qty(receipt.gasUsed,'gasUsed')*qty(receipt.effectiveGasPrice,'effectiveGasPrice');
+  const gasUsed=qty(receipt.gasUsed,'gasUsed');
+  if(tx.gas!=null)assert(gasUsed<=qty(tx.gas,'transaction gas limit'),'Receipt gas exceeds transaction gas limit');
+  const executionWei=gasUsed*qty(receipt.effectiveGasPrice,'effectiveGasPrice');
   const blobUsed=receipt.blobGasUsed==null?0n:qty(receipt.blobGasUsed,'blobGasUsed');
   const blobWei=blobUsed===0n?0n:blobUsed*qty(receipt.blobGasPrice,'blobGasPrice');
   const dataWei=dataFeeMode==='zero-local'?0n:qty(receipt.l1Fee,'l1Fee (required for receipt data fee mode)');
