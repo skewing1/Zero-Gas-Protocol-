@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {compareCapturedPayments} from './compare-captures.mjs';
+const h=n=>'0x'+n.toString(16).padStart(64,'0');
+const capture=(hash,cost)=>({chainId:'31337',verifiedByTool:false,receipts:[{transactionHash:hash,canonical:true,success:true,executionWei:cost,blobWei:'0',dataWei:'0'}]});
+const zero={relayerWei:'0',deploymentWei:'0',settlementWei:'0',bridgeWei:'0'};
+const args=()=>({baselineCapture:capture(h(1),'100'),candidateCapture:capture(h(2),'50'),baselineCosts:{...zero},candidateCosts:{...zero},baselineOutcomeDigest:h(9),candidateOutcomeDigest:h(9)});
+test('all-in arithmetic with distinct mined receipt evidence',()=>{const r=compareCapturedPayments(args());assert.equal(r.savingsBps,'5000');assert.equal(r.meetsTarget,true);assert.equal(r.verifiedByTool,false)});
+test('strict target rejects exactly 45 percent',()=>{const a=args();a.candidateCapture.receipts[0].executionWei='55';assert.equal(compareCapturedPayments(a).meetsTarget,false)});
+test('relayer overhead reverses apparent savings',()=>{const a=args();a.candidateCosts={...zero,relayerWei:'60'};assert.equal(compareCapturedPayments(a).meetsTarget,false)});
+test('missing overhead rejected',()=>{const a=args();delete a.candidateCosts.bridgeWei;assert.throws(()=>compareCapturedPayments(a),/bridgeWei/)});
+test('cross-strategy receipt reuse rejected',()=>{const a=args();a.candidateCapture.receipts[0].transactionHash=h(1);assert.throws(()=>compareCapturedPayments(a),/reused/)});
+test('different outcomes rejected',()=>{const a=args();a.candidateOutcomeDigest=h(10);assert.throws(()=>compareCapturedPayments(a),/Different payment outcomes/)});
+test('different chains rejected',()=>{const a=args();a.candidateCapture.chainId='31338';assert.throws(()=>compareCapturedPayments(a),/chain mismatch/)});
+test('uncertified input provenance flag required',()=>{const a=args();delete a.baselineCapture.verifiedByTool;assert.throws(()=>compareCapturedPayments(a),/uncertified/)});
