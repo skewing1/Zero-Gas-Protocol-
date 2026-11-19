@@ -115,3 +115,38 @@ test('allows ordinary tip extension while retaining conservative evidence flags'
  const evidence=await inspectMinedType4({rpc,transactionHash:h,minConfirmations:2});
  assert.equal(evidence.claimableSavings,false);
 });
+
+test('rejects replaced previous head even when latest height increases',async()=>{
+ let latestReads=0,oldHeadReads=0;
+ const rpc=async(method,args)=>{
+  if(method==='eth_chainId')return '0x7a69';
+  if(method==='eth_getTransactionByHash')return tx();
+  if(method==='eth_getTransactionReceipt')return receipt();
+  if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
+  if(method==='eth_getBlockByNumber'){
+   if(args[0]==='latest')return {number:++latestReads===1?'0x2':'0x3',hash:'0x'+'a'.repeat(64)};
+   if(args[0]==='0x2'){oldHeadReads++;return {number:'0x2',hash:'0x'+'d'.repeat(64)};}
+   return {number:'0x1',hash:b};
+  }
+  throw Error('unexpected method');
+ };
+ await assert.rejects(()=>inspectMinedType4({rpc,transactionHash:h}),/Previous chain head was replaced/);
+ assert.equal(oldHeadReads,1);
+});
+test('allows extension only when previous head remains canonical',async()=>{
+ let latestReads=0;
+ const rpc=async(method,args)=>{
+  if(method==='eth_chainId')return '0x7a69';
+  if(method==='eth_getTransactionByHash')return tx();
+  if(method==='eth_getTransactionReceipt')return receipt();
+  if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
+  if(method==='eth_getBlockByNumber'){
+   if(args[0]==='latest')return {number:++latestReads===1?'0x2':'0x3',hash:'0x'+'a'.repeat(64)};
+   if(args[0]==='0x2')return {number:'0x2',hash:'0x'+'a'.repeat(64)};
+   return {number:'0x1',hash:b};
+  }
+  throw Error('unexpected method');
+ };
+ const evidence=await inspectMinedType4({rpc,transactionHash:h});
+ assert.equal(evidence.claimableSavings,false);
+});
