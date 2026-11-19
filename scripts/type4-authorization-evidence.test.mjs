@@ -108,6 +108,7 @@ test('allows ordinary tip extension while retaining conservative evidence flags'
   if(method==='eth_getBlockByHash')return {hash:b,number:'0x1',transactions:[h]};
   if(method==='eth_getBlockByNumber'){
    if(args[0]==='latest')return {number:++heads===1?'0x2':'0x3',hash:'0x'+'a'.repeat(64)};
+   if(args[0]==='0x2')return {number:'0x2',hash:'0x'+'a'.repeat(64)};
    return {number:'0x1',hash:b};
   }
   throw Error('unexpected method');
