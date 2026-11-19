@@ -37,3 +37,13 @@ test('45 percent exactly does not exceed threshold',()=>{
 test('negative savings are reported',()=>{
   const p=input();p.candidate.receipts[0].executionWei='1500';assert.equal(compareAllIn(p).savingsBps,'-5000');
 });
+
+test('rejects reuse of a mined transaction across both strategies',()=>{
+  const p=input();p.candidate.receipts[0].transactionHash=p.baseline.receipts[0].transactionHash;
+  assert.throws(()=>compareAllIn(p),/Receipt reused across baseline and candidate/);
+});
+test('rejects cross-side reuse even when transaction hash casing differs',()=>{
+  const p=input();p.baseline.receipts[0].transactionHash='0x'+'A'.repeat(64);
+  p.candidate.receipts[0].transactionHash='0x'+'a'.repeat(64);
+  assert.throws(()=>compareAllIn(p),/Receipt reused across baseline and candidate/);
+});
