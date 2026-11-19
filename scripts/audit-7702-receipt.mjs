@@ -26,8 +26,17 @@ export async function audit7702(rpc, hash) {
     assert(BigInt(a.yParity) === 0n || BigInt(a.yParity) === 1n, 'Invalid parity');
     assert(BigInt(a.r) > 0n && BigInt(a.s) > 0n, 'Empty authorization signature');
   }
+  // A receipt and transaction must identify the same mined block when the
+  // provider exposes transaction block fields. Never infer zero from missing data.
+  if (tx.blockHash != null)
+    assert.equal(tx.blockHash.toLowerCase(), receipt.blockHash.toLowerCase(),
+      'Transaction and receipt block hash mismatch');
+  if (tx.blockNumber != null)
+    assert.equal(BigInt(tx.blockNumber), BigInt(receipt.blockNumber),
+      'Transaction and receipt block number mismatch');
   const block = await rpc('eth_getBlockByNumber', [receipt.blockNumber, false]);
-  assert(block && block.hash.toLowerCase() === receipt.blockHash.toLowerCase(),
+  assert(block && BigInt(block.number ?? receipt.blockNumber) === BigInt(receipt.blockNumber) &&
+    block.hash.toLowerCase() === receipt.blockHash.toLowerCase(),
     'Receipt block not canonical');
   assert(block.transactions.some(h => h.toLowerCase() === hash.toLowerCase()),
     'Transaction absent from canonical block');
@@ -35,12 +44,15 @@ export async function audit7702(rpc, hash) {
   const effectiveGasPrice = BigInt(receipt.effectiveGasPrice);
   assert(gasUsed > 0n && effectiveGasPrice >= 0n, 'Invalid mined gas fields');
   const blobGas = BigInt(receipt.blobGasUsed ?? 0);
+  assert(blobGas >= 0n, 'Negative blob gas');
   assert(blobGas === 0n || receipt.blobGasPrice != null, 'Blob fee missing');
+  if (receipt.blobGasPrice != null) assert(BigInt(receipt.blobGasPrice) >= 0n, 'Negative blob price');
   const executionWei = gasUsed * effectiveGasPrice;
   const blobWei = blobGas * BigInt(receipt.blobGasPrice ?? 0);
   // L2 data fee absent from a receipt is UNKNOWN, not zero.
   const l1FeeKnown = receipt.l1Fee != null;
   const l1FeeWei = l1FeeKnown ? BigInt(receipt.l1Fee) : null;
+  if (l1FeeKnown) assert(l1FeeWei >= 0n, 'Negative L1 data fee');
   return {
     transactionHash: hash, blockHash: block.hash,
     chainId: BigInt(tx.chainId).toString(),
