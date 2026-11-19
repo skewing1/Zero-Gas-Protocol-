@@ -34,3 +34,15 @@ test('reject negative L1 fee instead of crediting cost',async()=>{
 test('reject negative blob price even on non-blob transaction',async()=>{
   await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionReceipt'?{...receipt,blobGasPrice:'-1'}:rpc(m),hash),/Negative blob price/);
 });
+
+test('reject authorization r equal to curve order',async()=>{
+  const n='0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionByHash'?{...tx,authorizationList:[{...tx.authorizationList[0],r:n}]}:rpc(m),hash),/r outside/);
+});
+test('reject high-s authorization signatures',async()=>{
+  const n='0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140';
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionByHash'?{...tx,authorizationList:[{...tx.authorizationList[0],s:n}]}:rpc(m),hash),/low-s/);
+});
+test('reject negative authorization nonce',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionByHash'?{...tx,authorizationList:[{...tx.authorizationList[0],nonce:'-1'}]}:rpc(m),hash),/Negative authorization nonce/);
+});
