@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 const quantity=(value,label)=>{assert(typeof value==='string' && /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value),label+' must be canonical RPC quantity');return BigInt(value)};
 const address=(value,label)=>assert(typeof value==='string' && /^0x[0-9a-fA-F]{40}$/.test(value),label+' must be an address');
-const signature=(value,label)=>assert(typeof value==='string' && /^0x[0-9a-fA-F]{64}$/.test(value),label+' must be 32-byte hex');
+const SECP256K1_ORDER=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
+const signature=(value,label)=>{
+ assert(typeof value==='string' && /^0x[0-9a-fA-F]{64}$/.test(value),label+' must be 32-byte hex');
+ const scalar=BigInt(value);
+ assert(scalar>0n && scalar<SECP256K1_ORDER,label+' outside secp256k1 scalar range');
+ return scalar;
+};
 /** Structural RPC evidence only; does not verify ECDSA signatures. */
 export function inspectType4Transaction(tx,expectedChainId){
  assert(tx && typeof tx==='object','Transaction missing');
@@ -19,7 +25,6 @@ export function inspectType4Transaction(tx,expectedChainId){
   const y=quantity(entry.yParity,label+' yParity');
   assert(y===0n||y===1n,label+' invalid yParity');
   signature(entry.r,label+' r');signature(entry.s,label+' s');
-  assert(BigInt(entry.r)>0n&&BigInt(entry.s)>0n,label+' zero signature scalar');
   return {chainId:authChain.toString(),delegate:entry.address.toLowerCase(),nonce:BigInt(entry.nonce).toString()};
  });
  return {transactionType:'4',authorizationCount:authorizations.length,authorizations,signatureVerified:false,executionVerified:false};
