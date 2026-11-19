@@ -21,3 +21,16 @@ test('reject orphaned receipt',async()=>{
 test('reject missing positive blob price',async()=>{
   await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionReceipt'?{...receipt,blobGasUsed:'0x1'}:rpc(m),hash),/Blob fee missing/);
 });
+
+test('reject transaction and receipt block mismatch',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionByHash'?{...tx,blockHash:'0x'+'ff'.repeat(32)}:rpc(m),hash),/block hash mismatch/);
+});
+test('reject inconsistent canonical block height',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_getBlockByNumber'?{...block,number:'0x2'}:rpc(m),hash),/not canonical/);
+});
+test('reject negative L1 fee instead of crediting cost',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionReceipt'?{...receipt,l1Fee:'-0x1'}:rpc(m),hash),/Cannot convert|Negative L1 data fee/);
+});
+test('reject negative blob price even on non-blob transaction',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionReceipt'?{...receipt,blobGasPrice:'-1'}:rpc(m),hash),/Negative blob price/);
+});
