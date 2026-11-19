@@ -38,6 +38,8 @@ jobs:
         run: node --test scripts/validate-workload.mjs
       - name: Test signed service discovery
         run: node --test network/records.test.mjs
+      - name: Test read-only EIP-7702 receipt auditor
+        run: node --test scripts/audit-7702-receipt.test.mjs
       - name: Run receipt benchmarks twice
         run: |
           anvil --chain-id 31337 --hardfork cancun --mnemonic 'test test test test test test test test test test test junk' > /tmp/receipt-anvil.log 2>&1 &
