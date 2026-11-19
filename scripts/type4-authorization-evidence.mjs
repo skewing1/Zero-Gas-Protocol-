@@ -73,6 +73,12 @@ export async function inspectMinedType4({rpc,transactionHash,minConfirmations=1}
  const tipAgain=quantity(headAgain.number,'rechecked head number');
  assert(tipAgain>=tip,'Chain head height regressed during inspection');
  if(tipAgain===tip) assert(headAgain.hash.toLowerCase()===head.hash.toLowerCase(),'Chain head changed during inspection');
+ // A higher tip can hide a reorg of the original head; compare its canonical height.
+ // A head reorg above the receipt height must not be mistaken for ordinary extension.
+ if(tipAgain>tip){
+  const previousHead=await rpc('eth_getBlockByNumber',[head.number,false]);
+  assert(previousHead&&typeof previousHead.hash==='string'&&previousHead.hash.toLowerCase()===head.hash.toLowerCase(),'Previous chain head was replaced during extension');
+ }
  assert(tipAgain>=height && tipAgain-height+1n>=BigInt(minConfirmations),'Confirmations lost during inspection');
  return {...evidence,transactionHash:transactionHash.toLowerCase(),blockHash:receipt.blockHash.toLowerCase(),claimableSavings:false};
 }
