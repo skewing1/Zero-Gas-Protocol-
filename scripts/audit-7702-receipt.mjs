@@ -49,8 +49,22 @@ export async function audit7702(rpc, hash) {
   assert(block && BigInt(block.number ?? receipt.blockNumber) === BigInt(receipt.blockNumber) &&
     block.hash.toLowerCase() === receipt.blockHash.toLowerCase(),
     'Receipt block not canonical');
-  assert(block.transactions.some(h => h.toLowerCase() === hash.toLowerCase()),
+  assert(Array.isArray(block.transactions), 'Canonical block transaction list missing');
+  const minedHashes = block.transactions.map(item =>
+    typeof item === 'string' ? item.toLowerCase() : item?.hash?.toLowerCase());
+  assert(minedHashes.includes(hash.toLowerCase()),
     'Transaction absent from canonical block');
+  // The receipt index is consensus-position evidence. Check it against the
+  // canonical block rather than merely testing that the hash appears somewhere.
+  assert(receipt.transactionIndex != null, 'Missing receipt transaction index');
+  const transactionIndex = BigInt(receipt.transactionIndex);
+  assert(transactionIndex >= 0n && transactionIndex < BigInt(minedHashes.length),
+    'Receipt transaction index outside canonical block');
+  assert.equal(minedHashes[Number(transactionIndex)], hash.toLowerCase(),
+    'Receipt transaction index does not match canonical block');
+  if (tx.transactionIndex != null)
+    assert.equal(BigInt(tx.transactionIndex), transactionIndex,
+      'Transaction and receipt indices disagree');
   const gasUsed = BigInt(receipt.gasUsed);
   const effectiveGasPrice = BigInt(receipt.effectiveGasPrice);
   assert(gasUsed > 0n && effectiveGasPrice >= 0n, 'Invalid mined gas fields');
