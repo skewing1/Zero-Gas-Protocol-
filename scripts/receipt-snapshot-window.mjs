@@ -15,11 +15,16 @@ function checkSide(capture,window,label) {
   assert(beforeHash!==afterHash,label+' snapshot block hashes must differ');
   assert(Array.isArray(capture?.receipts)&&capture.receipts.length>0,label+' receipts missing');
   const seen=new Set();
+  const observedBlocks=new Map();
   for(const receipt of capture.receipts){
     const n=dec(receipt.blockNumber,label+' receipt blockNumber');
     assert(n>before && n<=after,label+' receipt outside snapshot window');
     const blockHash=hash(receipt.blockHash,label+' receipt blockHash');
     const txHash=hash(receipt.transactionHash,label+' transactionHash');
+    const blockKey=n.toString();
+    const priorHash=observedBlocks.get(blockKey);
+    assert(priorHash===undefined || priorHash===blockHash,label+' conflicting block hashes at same height');
+    observedBlocks.set(blockKey,blockHash);
     assert(!seen.has(txHash),label+' duplicate receipt');
     seen.add(txHash);
     if(n===after)assert(blockHash===afterHash,label+' after-block hash disagrees with receipt');
