@@ -40,6 +40,17 @@ export async function inspectMinedType4({rpc,transactionHash}){
  assert(quantity(receipt.type,'receipt type')===4n,'Receipt is not type-4');
  assert(quantity(receipt.status,'receipt status')===1n,'Type-4 transaction reverted');
  assert(tx.blockHash&&receipt.blockHash&&tx.blockHash.toLowerCase()===receipt.blockHash.toLowerCase(),'Mined block mismatch');
+ assert(typeof tx.blockHash==='string'&&/^0x[0-9a-fA-F]{64}$/.test(tx.blockHash),'Invalid mined block hash');
+ assert(quantity(tx.blockNumber,'transaction blockNumber')===quantity(receipt.blockNumber,'receipt blockNumber'),'Mined block height mismatch');
+ assert(quantity(tx.transactionIndex,'transaction index')===quantity(receipt.transactionIndex,'receipt transactionIndex'),'Mined transaction position mismatch');
+ const block=await rpc('eth_getBlockByHash',[receipt.blockHash,false]);
+ assert(block&&typeof block==='object','Mined block missing');
+ assert(typeof block.hash==='string'&&block.hash.toLowerCase()===receipt.blockHash.toLowerCase(),'Canonical block hash mismatch');
+ assert(quantity(block.number,'block number')===quantity(receipt.blockNumber,'receipt blockNumber'),'Canonical block height mismatch');
+ assert(Array.isArray(block.transactions),'Canonical block transactions missing');
+ const index=quantity(receipt.transactionIndex,'receipt transactionIndex');
+ assert(index<BigInt(block.transactions.length),'Transaction index outside block');
+ assert(typeof block.transactions[Number(index)]==='string'&&block.transactions[Number(index)].toLowerCase()===transactionHash.toLowerCase(),'Transaction absent at mined block index');
  const evidence=inspectType4Transaction(tx,chainId);
  return {...evidence,transactionHash:transactionHash.toLowerCase(),blockHash:receipt.blockHash.toLowerCase(),claimableSavings:false};
 }
