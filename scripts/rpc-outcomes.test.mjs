@@ -36,7 +36,21 @@ test('rejects duplicate recipients',async()=>{
 });
 test('pairs snapshots only with increasing height',()=>{
  const b={chainId:'31337',asset:'native',blockNumber:'16',blockHash:H,recipients:[{address:A,balance:'5'}]};
- const a={...b,blockNumber:'17',recipients:[{address:A,balance:'9'}]};
+ const a={...b,blockNumber:'17',blockHash:'0x'+'2'.repeat(64),recipients:[{address:A,balance:'9'}]};
  assert.equal(pairSnapshots(b,a).recipients[0].after,'9');
  assert.throws(()=>pairSnapshots(a,b),/Non-increasing/);
+});
+
+test('rejects forged negative or noncanonical balance evidence',()=>{
+ const s={chainId:'31337',asset:'native',blockNumber:'16',blockHash:H,recipients:[{address:A,balance:'5'}]};
+ const a={...s,blockNumber:'17',blockHash:'0x'+'2'.repeat(64)};
+ for(const bad of ['-1','01','1.0','0x5',''])assert.throws(()=>pairSnapshots({...s,recipients:[{address:A,balance:bad}]},a),/Invalid snapshot balance/);
+});
+test('rejects malformed block provenance and recipient identity',()=>{
+ const s={chainId:'31337',asset:'native',blockNumber:'16',blockHash:H,recipients:[{address:A,balance:'5'}]};
+ const a={...s,blockNumber:'17',blockHash:'0x'+'2'.repeat(64)};
+ assert.throws(()=>pairSnapshots({...s,blockHash:'0x1234'},a),/Invalid snapshot block hash/);
+ assert.throws(()=>pairSnapshots({...s,chainId:'0'},a),/Invalid snapshot chain/);
+ assert.throws(()=>pairSnapshots({...s,recipients:[{address:A.toUpperCase(),balance:'5'}]},a),/Invalid snapshot recipient address/);
+ assert.throws(()=>pairSnapshots(s,{...a,blockHash:H}),/Identical block hash/);
 });
