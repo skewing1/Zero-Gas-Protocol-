@@ -5,11 +5,16 @@ import assert from 'node:assert/strict';
 
 export async function audit7702(rpc, hash) {
   assert(/^0x[0-9a-fA-F]{64}$/.test(hash), 'Expected 32-byte transaction hash');
-  const [tx, receipt] = await Promise.all([
+  const [tx, receipt, rpcChainId] = await Promise.all([
     rpc('eth_getTransactionByHash', [hash]),
     rpc('eth_getTransactionReceipt', [hash]),
+    rpc('eth_chainId', []),
   ]);
   assert(tx && receipt, 'Transaction or receipt not mined');
+  assert(rpcChainId != null, 'Missing RPC chain identity');
+  const observedChainId = BigInt(rpcChainId);
+  assert(observedChainId > 0n, 'Invalid RPC chain identity');
+  assert.equal(BigInt(tx.chainId), observedChainId, 'Transaction chain differs from RPC chain');
   assert.equal(BigInt(tx.type), 4n, 'Not an EIP-7702 transaction');
   assert.equal(BigInt(receipt.type), 4n, 'Receipt is not type 0x04');
   assert.equal(BigInt(receipt.status), 1n, 'EIP-7702 transaction reverted');
@@ -21,7 +26,7 @@ export async function audit7702(rpc, hash) {
     assert(/^0x[0-9a-fA-F]{40}$/.test(a.address), 'Invalid authorization delegate');
     for (const field of ['chainId', 'nonce', 'yParity', 'r', 's'])
       assert(a[field] != null, 'Incomplete authorization: ' + field);
-    assert(BigInt(a.chainId) === 0n || BigInt(a.chainId) === BigInt(tx.chainId),
+    assert(BigInt(a.chainId) === 0n || BigInt(a.chainId) === observedChainId,
       'Authorization chain mismatch');
     assert(BigInt(a.yParity) === 0n || BigInt(a.yParity) === 1n, 'Invalid parity');
     // secp256k1 scalar validity: EIP-7702 authorization signatures must be
@@ -61,7 +66,7 @@ export async function audit7702(rpc, hash) {
   if (l1FeeKnown) assert(l1FeeWei >= 0n, 'Negative L1 data fee');
   return {
     transactionHash: hash, blockHash: block.hash,
-    chainId: BigInt(tx.chainId).toString(),
+    chainId: observedChainId.toString(),
     authorizationCount: tx.authorizationList.length,
     gasUsed: gasUsed.toString(),
     executionWei: executionWei.toString(),

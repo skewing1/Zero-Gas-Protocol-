@@ -5,7 +5,7 @@ const hash='0x'+'ab'.repeat(32), blockHash='0x'+'cd'.repeat(32);
 const tx={hash,type:'0x4',chainId:'0x7a69',authorizationList:[{address:'0x'+'11'.repeat(20),chainId:'0x7a69',nonce:'0x0',yParity:'0x1',r:'0x1',s:'0x2'}]};
 const receipt={transactionHash:hash,type:'0x4',status:'0x1',blockNumber:'0x1',blockHash,gasUsed:'0x5208',effectiveGasPrice:'0x3'};
 const block={hash:blockHash,transactions:[hash]};
-const rpc=async(method)=>({'eth_getTransactionByHash':tx,'eth_getTransactionReceipt':receipt,'eth_getBlockByNumber':block})[method];
+const rpc=async(method)=>({'eth_chainId':'0x7a69','eth_getTransactionByHash':tx,'eth_getTransactionReceipt':receipt,'eth_getBlockByNumber':block})[method];
 test('mined type-4 receipt and fee evidence',async()=>{
   const r=await audit7702(rpc,hash);
   assert.equal(r.executionWei,'63000');
@@ -45,4 +45,19 @@ test('reject high-s authorization signatures',async()=>{
 });
 test('reject negative authorization nonce',async()=>{
   await assert.rejects(audit7702(async(m)=>m==='eth_getTransactionByHash'?{...tx,authorizationList:[{...tx.authorizationList[0],nonce:'-1'}]}:rpc(m),hash),/Negative authorization nonce/);
+});
+
+test('reject transaction chain different from RPC network',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_chainId'?'0x1':rpc(m),hash),/Transaction chain differs/);
+});
+test('reject absent RPC chain identity',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_chainId'?null:rpc(m),hash),/Missing RPC chain identity/);
+});
+test('reject zero RPC chain identity',async()=>{
+  await assert.rejects(audit7702(async(m)=>m==='eth_chainId'?'0x0':rpc(m),hash),/Invalid RPC chain identity/);
+});
+test('accept wildcard authorization chain only on verified transaction chain',async()=>{
+  const wildcard={...tx,authorizationList:[{...tx.authorizationList[0],chainId:'0x0'}]};
+  const result=await audit7702(async(m)=>m==='eth_getTransactionByHash'?wildcard:rpc(m),hash);
+  assert.equal(result.chainId,'31337');
 });
