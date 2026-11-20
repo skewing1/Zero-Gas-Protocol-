@@ -34,6 +34,10 @@ export function compareAllInCost(input) {
   // Outcome fingerprint must be independently generated from verified post-state, not user-declared equivalence.
   if (typeof input.verifiedOutcomeDigest !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(input.verifiedOutcomeDigest)) throw new Error('verified outcome digest required');
   if (baseline?.outcomeDigest?.toLowerCase() !== input.verifiedOutcomeDigest.toLowerCase() || candidate?.outcomeDigest?.toLowerCase() !== input.verifiedOutcomeDigest.toLowerCase()) throw new Error('outcome mismatch');
+  // A transaction cannot be charged to both alternatives. Shared receipts make
+  // the comparison non-independent and can conceal duplicated setup/settlement.
+  const baselineHashes = new Set(baseline.receipts.map(r => r.txHash.toLowerCase()));
+  if (candidate.receipts.some(r => baselineHashes.has(r.txHash.toLowerCase()))) throw new Error('baseline and candidate receipts overlap');
   const b=side(baseline,'baseline'), c=side(candidate,'candidate');
   if (b.totalWei === 0n) throw new Error('zero baseline cost');
   const savingsBps=(b.totalWei-c.totalWei)*10000n/b.totalWei;
