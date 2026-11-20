@@ -21,3 +21,6 @@ test('blob gas fee components counted',()=>{const x=fixture();Object.assign(x.pa
 test('forged blob fee rejected',()=>{const x=fixture();Object.assign(x.paths[1].receipts[0],{blobGasUsed:'5',blobGasPriceWei:'2',blobFeeWei:'0'});assert.throws(()=>compareAllInCosts(x),/Blob fee mismatch/)});
 test('omitted blob usage rejected',()=>{const x=fixture();delete x.paths[1].receipts[0].blobGasUsed;assert.throws(()=>compareAllInCosts(x),/canonical unsigned wei/)});
 test('zero gas receipt rejected',()=>{const x=fixture();x.paths[1].receipts[0].gasUsed='0';assert.throws(()=>compareAllInCosts(x),/gasUsed must be positive/)});
+
+test('same transaction cannot prove both paths',()=>{const x=fixture();x.paths[1].receipts[0].transactionHash=x.paths[0].receipts[0].transactionHash;assert.throws(()=>compareAllInCosts(x),/Receipt reused across baseline and candidate/)});
+test('cross-path receipt hash comparison is case insensitive',()=>{const x=fixture();x.paths[1].receipts[0].transactionHash=x.paths[0].receipts[0].transactionHash.toUpperCase().replace('0X','0x');assert.throws(()=>compareAllInCosts(x),/Receipt reused across baseline and candidate/)});
