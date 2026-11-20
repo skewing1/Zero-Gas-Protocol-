@@ -54,12 +54,22 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
  if(minimumConfirmations!==null){
   assert(typeof minimumConfirmations==='string','minimumConfirmations must be a canonical decimal string');
   const head=qty(await rpc('eth_blockNumber',[]),'chain head');
+  // Pin the observed head by hash, not just height: a same-height reorg can invalidate the depth claim.
+  const headHex='0x'+head.toString(16);
+  const headBlock=await rpc('eth_getBlockByNumber',[headHex,false]);
+  assert(headBlock&&qty(headBlock.number,'confirmation head number')===head,'Confirmation head height mismatch');
+  const headHash=hash(headBlock.hash,'confirmation head hash');
   confirmationEvidence=evidence.map(e=>({transactionHash:e.transactionHash,...enforceReceiptConfirmations({receiptBlockNumber:e.blockNumber,headBlockNumber:head.toString(),minimumConfirmations})}));
   // Check canonical identity again after reading the head.
   for(const e of evidence){
    const b=await rpc('eth_getBlockByNumber',['0x'+BigInt(e.blockNumber).toString(16),false]);
    assert(b&&hash(b.hash,'post-head block hash')===e.blockHash,'Reorg after confirmation check');
   }
+  const finalHeight=qty(await rpc('eth_blockNumber',[]),'final chain head');
+  assert(finalHeight>=head,'Confirmation head regressed');
+  const pinnedHead=await rpc('eth_getBlockByNumber',[headHex,false]);
+  assert(pinnedHead&&qty(pinnedHead.number,'rechecked head number')===head&&hash(pinnedHead.hash,'rechecked head hash')===headHash,'Confirmation head replaced');
+  assert(qty(await rpc('eth_chainId',[]),'post-confirmation chainId')===chainId,'RPC chain changed after confirmation');
  }
  return {chainId:chainId.toString(),receipts:evidence,confirmationEvidence,verifiedByTool:false,caveat:'Single-RPC canonical consistency only; no independent finality proof. Include relayer, deployment, settlement and bridge fees separately. Receipt l1Fee support varies by chain.'};
 }
