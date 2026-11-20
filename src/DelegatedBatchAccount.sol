@@ -7,13 +7,16 @@ pragma solidity ^0.8.26;
 ///      Experimental: no ERC-1271, tokens, recovery or cross-chain execution.
 contract DelegatedBatchAccount {
     bytes32 private constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     bytes32 private constant INTENT_TYPEHASH =
         keccak256("BatchIntent(bytes32 payoutsHash,uint256 nonce,uint256 deadline,uint256 relayerFee)");
     bytes32 private constant NAME_HASH = keccak256("ZeroGasDelegatedBatch");
-    bytes32 private constant VERSION_HASH = keccak256("1");
+    bytes32 private constant VERSION_HASH = keccak256("2");
     uint256 private constant SECP256K1_HALF_N =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
+
+    // Immutable is embedded in runtime bytecode and remains the implementation address under 7702 delegation.
+    address private immutable IMPLEMENTATION = address(this);
 
     // A dedicated slot avoids collisions with common delegated-account storage.
     bytes32 private constant NONCE_SLOT =
@@ -36,7 +39,7 @@ contract DelegatedBatchAccount {
     }
 
     function domainSeparator() public view returns (bytes32) {
-        return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this)));
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this), bytes32(uint256(uint160(IMPLEMENTATION)))));
     }
 
     function intentDigest(
