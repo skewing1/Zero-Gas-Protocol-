@@ -3,6 +3,7 @@
 // Requires Foundry (anvil, forge, cast) and Node >= 20.
 import assert from 'node:assert/strict';
 import { validateBench } from './validate-bench-evidence.mjs';
+import { auditEconomics } from './audit-benchmark-economics.mjs';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
@@ -86,6 +87,9 @@ async function main() {
     assert(existsSync('bench/results.json') && existsSync('bench/results.md'), 'Benchmark did not produce both fresh artifacts');
     const groups = JSON.parse(readFileSync('bench/results.json', 'utf8'));
     validateBench(groups);
+    const audit = auditEconomics(groups);
+    assert(audit.every(row => !row.allInSavingsVerified), 'Unexpected all-in savings claim');
+    console.log('Derived economics reconciled for', audit.length, 'payment paths; all-in savings remain unverified.');
     console.log('Fresh local mined-receipt artifacts validated: bench/results.json');
     console.log('Do not interpret this as EIP-7702 or cross-chain savings: bench.mjs benchmarks P0/P1/P2 only.');
   } finally {
