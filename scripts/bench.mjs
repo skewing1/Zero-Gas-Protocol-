@@ -231,6 +231,13 @@ async function run(workload, asset, path, sender, relayer) {
   };
 }
 
+// Avoid converting unbounded receipt costs to Number (precision loss or Infinity).
+// Input is a nonnegative integer number of basis points; output is fixed two decimals.
+function formatBasisPoints(bps) {
+  assert(typeof bps === 'bigint' && bps >= 0n, 'Expected nonnegative basis points');
+  return (bps / 100n).toString() + '.' + (bps % 100n).toString().padStart(2, '0');
+}
+
 function markdown(groups) {
   const lines = [
     '# Receipt-based payout benchmarks', '',
@@ -286,7 +293,7 @@ async function main() {
           // Signed basis points preserve negative savings and avoid floating-point precision loss.
           result.lifecycleSavingsBps = ((baseline - candidate) * 10000n / baseline).toString();
           result.lifecycleFeeWei = candidate.toString();
-          result.feeVsP0Percent = (Number((candidate * 10000n + baseline / 2n) / baseline) / 100).toFixed(2);
+          result.feeVsP0Percent = formatBasisPoints((candidate * 10000n + baseline / 2n) / baseline);
           paths.push(result);
         } finally {
           assert(await rpc('evm_revert', snapshot), 'Could not restore Anvil state');
