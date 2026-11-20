@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {enforceReceiptConfirmations as check} from './receipt-confirmation-policy.mjs';
+const p=(head,minimum='2',receipt='10')=>check({receiptBlockNumber:receipt,headBlockNumber:head,minimumConfirmations:minimum});
+test('accepts exact confirmation threshold',()=>assert.equal(p('11').observedConfirmations,'2'));
+test('rejects insufficient depth',()=>assert.throws(()=>p('10'),/insufficient/));
+test('rejects head behind receipt',()=>assert.throws(()=>p('9'),/ahead/));
+test('rejects zero minimum',()=>assert.throws(()=>p('10','0'),/at least 1/));
+test('rejects malformed decimal',()=>assert.throws(()=>p('01'),/canonical/));
+test('uses exact bigint arithmetic beyond JS safe integer',()=>assert.equal(p('9007199254740994','2','9007199254740993').observedConfirmations,'2'));
