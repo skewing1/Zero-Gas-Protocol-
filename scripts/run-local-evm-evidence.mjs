@@ -2,6 +2,7 @@
 // Offline-only, disposable Prague EVM execution. No external RPC or paid CI.
 // Requires Foundry (anvil, forge, cast) and Node >= 20.
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -78,8 +79,30 @@ async function main() {
     assert(ready, 'Prague Anvil did not start: ' + output);
     console.log('Disposable Prague Anvil running on loopback, chain 31337.');
     execute('forge', ['test', '-vv']);
+    // Stale output must never be mistaken for receipts from this execution.
+    for (const file of ['bench/results.json', 'bench/results.md']) rmSync(file, { force: true });
     execute('node', ['scripts/bench.mjs']);
-    console.log('Real locally mined receipt benchmark finished: bench/results.json');
+    assert(existsSync('bench/results.json') && existsSync('bench/results.md'), 'Benchmark did not produce both fresh artifacts');
+    const groups = JSON.parse(readFileSync('bench/results.json', 'utf8'));
+    assert(Array.isArray(groups) && groups.length === 8, 'Expected four workloads for two assets');
+    for (const group of groups) {
+      assert(['W1', 'W2', 'W3', 'W4'].includes(group.workload), 'Unexpected workload');
+      assert(['native', 'token'].includes(group.asset), 'Unexpected asset');
+      assert(Array.isArray(group.paths) && group.paths.length >= 3, 'Missing benchmark paths');
+      assert(group.paths[0].path === 'P0', 'Missing conventional baseline');
+      for (const path of group.paths) {
+        assert(Array.isArray(path.receipts) && path.receipts.length > 0, 'Missing mined receipts');
+        const hashes = new Set();
+        for (const receipt of path.receipts) {
+          assert(/^0x[0-9a-fA-F]{64}$/.test(receipt.hash), 'Invalid receipt transaction hash');
+          assert(!hashes.has(receipt.hash.toLowerCase()), 'Duplicate transaction hash within path');
+          hashes.add(receipt.hash.toLowerCase());
+          assert(BigInt(receipt.feeWei) >= 0n, 'Invalid mined receipt fee');
+        }
+        assert(Array.isArray(path.finalBalances) && path.finalBalances.length > 0, 'Missing recipient outcomes');
+      }
+    }
+    console.log('Fresh local mined-receipt artifacts validated: bench/results.json');
     console.log('Do not interpret this as EIP-7702 or cross-chain savings: bench.mjs benchmarks P0/P1/P2 only.');
   } finally {
     anvil.kill('SIGTERM');
