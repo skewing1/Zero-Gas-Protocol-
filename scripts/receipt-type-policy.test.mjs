@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {requireEip7702Receipt as check} from './receipt-type-policy.mjs';
+const valid=()=>({transaction:{type:'0x4',chainId:'0x1',authorizationList:[{}]},receipt:{type:'0x4'},expectedChainId:'0x1'});
+test('accepts mined type-4 transaction with authorization evidence',()=>assert.equal(check(valid()).authorizationCount,1));
+test('rejects legacy transaction despite claimed 7702',()=>{const v=valid();v.transaction.type='0x2';assert.throws(()=>check(v),/not EIP-7702/)});
+test('rejects receipt type mismatch',()=>{const v=valid();v.receipt.type='0x2';assert.throws(()=>check(v),/not EIP-7702/)});
+test('rejects empty authorization list',()=>{const v=valid();v.transaction.authorizationList=[];assert.throws(()=>check(v),/Missing mined authorization/)});
+test('rejects absent chain id',()=>{const v=valid();delete v.transaction.chainId;assert.throws(()=>check(v),/Invalid transactionChainId/)});
+test('rejects wrong chain id',()=>{const v=valid();v.transaction.chainId='0xa';assert.throws(()=>check(v),/chain mismatch/)});
+test('rejects malformed transaction type',()=>{const v=valid();v.transaction.type='4';assert.throws(()=>check(v),/Invalid transactionType/)});
