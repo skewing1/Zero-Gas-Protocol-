@@ -31,3 +31,14 @@ test('rejects receipt gas exceeding transaction limit',async()=>{await assert.re
 test('accepts receipt gas within transaction limit',async()=>{const x=await captureReceiptCosts({rpc:mock({tx:{gas:'0x5208'}}),transactionHashes:[H]});assert.equal(x.receipts[0].executionWei,'63000')});
 test('rejects inconsistent receipt transaction type',async()=>{await assert.rejects(captureReceiptCosts({rpc:mock({tx:{type:'0x4'},receipt:{type:'0x2'}}),transactionHashes:[H]}),/type mismatch/)});
 test('accepts matching type-4 receipt and transaction',async()=>{const x=await captureReceiptCosts({rpc:mock({tx:{type:'0x4'},receipt:{type:'0x4'}}),transactionHashes:[H]});assert.equal(x.receipts.length,1)});
+
+test('rejects silently waived nonzero L1 data fees on local chains',async()=>{
+ await assert.rejects(captureReceiptCosts({rpc:mock({chain:'0x7a69'}),transactionHashes:[H],dataFeeMode:'zero-local'}),/Nonzero local L1 fee/);
+});
+test('accepts explicitly zero local L1 fee',async()=>{
+ const x=await captureReceiptCosts({rpc:mock({chain:'0x7a69',receipt:{l1Fee:'0x0'}}),transactionHashes:[H],dataFeeMode:'zero-local'});
+ assert.equal(x.receipts[0].dataWei,'0');
+});
+test('rejects malformed local L1 fee instead of ignoring it',async()=>{
+ await assert.rejects(captureReceiptCosts({rpc:mock({chain:'0x7a69',receipt:{l1Fee:'-1'}}),transactionHashes:[H],dataFeeMode:'zero-local'}),/local l1Fee/);
+});
