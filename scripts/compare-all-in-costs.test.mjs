@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {compareAllInCosts} from './compare-all-in-costs.mjs';
-const p=(id,gas)=>({id,outcomes:[{recipient:'0x'+'ab'.repeat(20),receivedWei:'100'}],receipts:[{transactionHash:'0x'+(id==='baseline'?'11':'22').repeat(32),status:'success',gasUsed:gas,effectiveGasPriceWei:'1',l1DataFeeWei:'0',blobFeeWei:'0'}],relayerOperatingCostWei:'0',deploymentCostWei:'0',settlementCostWei:'0',otherCostWei:'0'});
+const p=(id,gas)=>({id,outcomes:[{recipient:'0x'+'ab'.repeat(20),receivedWei:'100'}],receipts:[{transactionHash:'0x'+(id==='baseline'?'11':'22').repeat(32),status:'success',gasUsed:gas,effectiveGasPriceWei:'1',l1DataFeeWei:'0',blobFeeWei:'0'}],relayerCompensationWei:'0',relayerOperatingCostWei:'0',deploymentCostWei:'0',settlementCostWei:'0',otherCostWei:'0'});
 const fixture=()=>({paths:[p('baseline','100'),p('candidate','50')]});
 test('verified 50 percent',()=>assert.equal(compareAllInCosts(fixture()).savingsBasisPoints,'5000'));
 test('unknown cost forbids claim',()=>{const x=fixture();x.paths[1].settlementCostWei=null;assert.equal(compareAllInCosts(x).savingsBasisPoints,null)});
@@ -11,3 +11,8 @@ test('reverted receipt rejected',()=>{const x=fixture();x.paths[1].receipts[0].s
 
 test('complete supplied inputs are not authenticated mined receipts',()=>{const r=compareAllInCosts(fixture());assert.equal(r.costInputsComplete,true);assert.equal(r.verifiedAllIn,false);assert.equal(r.measuredSavingsBasisPoints,null);assert.equal(r.exceeds45Percent,null)});
 test('unknown expense is not complete or verified',()=>{const x=fixture();x.paths[0].relayerOperatingCostWei=null;const r=compareAllInCosts(x);assert.equal(r.costInputsComplete,false);assert.equal(r.verifiedAllIn,false);assert.equal(r.exceeds45Percent,null)});
+
+test('relayer compensation reduces payer savings',()=>{const x=fixture();x.paths[1].relayerCompensationWei='20';const r=compareAllInCosts(x);assert.equal(r.savingsBasisPoints,'3000');assert.equal(r.verifiedAllIn,false)});
+test('unknown relayer compensation forbids scenario savings',()=>{const x=fixture();x.paths[1].relayerCompensationWei=null;const r=compareAllInCosts(x);assert.equal(r.costInputsComplete,false);assert.equal(r.savingsBasisPoints,null);assert.deepEqual(r.missingCosts,['candidate.relayerCompensationWei'])});
+test('omitted relayer compensation fails closed',()=>{const x=fixture();delete x.paths[1].relayerCompensationWei;assert.throws(()=>compareAllInCosts(x),/canonical unsigned wei/)});
+test('relayer compensation is separate from operating expense',()=>{const x=fixture();x.paths[1].relayerCompensationWei='10';x.paths[1].relayerOperatingCostWei='5';assert.equal(compareAllInCosts(x).savingsBasisPoints,'3500')});
