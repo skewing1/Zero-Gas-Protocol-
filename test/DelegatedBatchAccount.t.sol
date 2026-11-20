@@ -107,4 +107,18 @@ contract DelegatedBatchAccountTest {
         account.executeBatch(to, amounts, 0, deadline, 9 ether, sig);
         require(account.nonce() == 0, "nonce changed");
     }
+    function testSignatureBoundToImplementationAcrossRedelegation() public {
+        (address[] memory to, uint256[] memory amounts) = _batch();
+        uint256 deadline = block.timestamp + 1000;
+        bytes memory sig = _signature(to, amounts, 0, deadline, 0);
+        bytes32 originalDigest = account.intentDigest(to, amounts, 0, deadline, 0);
+        // A new deployment has a different immutable implementation identity.
+        DelegatedBatchAccount replacement = new DelegatedBatchAccount();
+        vm.etch(owner, address(replacement).code);
+        require(account.intentDigest(to, amounts, 0, deadline, 0) != originalDigest, "implementation not bound");
+        vm.expectRevert(DelegatedBatchAccount.InvalidSignature.selector);
+        account.executeBatch(to, amounts, 0, deadline, 0, sig);
+        require(account.nonce() == 0, "nonce changed");
+    }
+
 }
