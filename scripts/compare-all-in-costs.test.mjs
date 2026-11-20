@@ -8,3 +8,6 @@ test('duplicate receipt rejected',()=>{const x=fixture();x.paths[0].receipts.pus
 test('L1 fee counted',()=>{const x=fixture();x.paths[1].receipts[0].l1DataFeeWei='60';assert.equal(compareAllInCosts(x).savingsBasisPoints,'-1000')});
 test('missing costs fail closed',()=>{const x=fixture();delete x.paths[0].otherCostWei;assert.throws(()=>compareAllInCosts(x),/canonical/)});
 test('reverted receipt rejected',()=>{const x=fixture();x.paths[1].receipts[0].status='reverted';assert.throws(()=>compareAllInCosts(x),/receipt/)});
+
+test('complete supplied inputs are not authenticated mined receipts',()=>{const r=compareAllInCosts(fixture());assert.equal(r.costInputsComplete,true);assert.equal(r.verifiedAllIn,false);assert.equal(r.measuredSavingsBasisPoints,null);assert.equal(r.exceeds45Percent,null)});
+test('unknown expense is not complete or verified',()=>{const x=fixture();x.paths[0].relayerOperatingCostWei=null;const r=compareAllInCosts(x);assert.equal(r.costInputsComplete,false);assert.equal(r.verifiedAllIn,false);assert.equal(r.exceeds45Percent,null)});
