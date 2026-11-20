@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { compareAllIn } from './all-in-cost.mjs';
+const digest = '0x' + 'f'.repeat(64);
+const receipt = (digit, feeWei) => ({ hash: '0x' + digit.repeat(64), feeWei, canonical: true, status: 'success' });
+const additionalCosts = (relayerWei = '0') => ({ relayerWei, dataWei: '0', settlementWei: '0', deploymentWei: '0', prefundingWei: '0', otherWei: '0' });
+const baseline = () => ({ chainId: '31337', outcomeDigest: digest, paymentCount: 10, receipts: [receipt('1','1000')], additionalCosts: additionalCosts() });
+const candidate = () => ({ chainId: '31337', outcomeDigest: digest, paymentCount: 10, receipts: [receipt('2','400')], additionalCosts: additionalCosts('100') });
+test('all-in reduction 50% includes relayer', () => { const result=compareAllIn({baseline:baseline(),candidate:candidate()});assert.equal(result.savingsBps,'5000');assert.equal(result.meetsTarget,true); });
+test('additional costs can eliminate savings', () => {const c=candidate();c.additionalCosts.relayerWei='700';const result=compareAllIn({baseline:baseline(),candidate:c});assert.equal(result.savingsBps,'-1000');assert.equal(result.meetsTarget,false);});
+test('missing data cost fails closed',()=>{const c=candidate();delete c.additionalCosts.dataWei;assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/dataWei/);});
+test('outcome mismatch rejected',()=>{const c=candidate();c.outcomeDigest='0x'+'a'.repeat(64);assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/outcomes/);});
+test('chain mismatch rejected',()=>{const c=candidate();c.chainId='8453';assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/Cross-chain/);});
+test('duplicate receipt rejected',()=>{const c=candidate();c.receipts.push(c.receipts[0]);assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/duplicate/);});
+test('reused receipt rejected',()=>{const c=candidate();c.receipts=[baseline().receipts[0]];assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/reused/);});
+test('unverified receipt rejected',()=>{const c=candidate();c.receipts[0].canonical=false;assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/unverified/);});
+test('malformed wei rejected',()=>{const c=candidate();c.additionalCosts.relayerWei='1.2';assert.throws(()=>compareAllIn({baseline:baseline(),candidate:c}),/wei/);});
+test('negative savings bps truncated toward zero',()=>{const c=candidate();c.receipts[0].feeWei='1001';c.additionalCosts.relayerWei='0';assert.equal(compareAllIn({baseline:baseline(),candidate:c}).savingsBps,'-10');});
