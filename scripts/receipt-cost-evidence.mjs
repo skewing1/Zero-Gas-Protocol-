@@ -2,10 +2,12 @@
 // Read-only mined receipt cost capture; no signing or broadcasts.
 import assert from 'node:assert/strict';
 import {enforceReceiptConfirmations} from './receipt-confirmation-policy.mjs';
+import {requireEip7702Receipt} from './receipt-type-policy.mjs';
 const hash=(v,label)=>{assert(typeof v==='string'&&/^0x[0-9a-fA-F]{64}$/.test(v),'Invalid '+label);return v.toLowerCase()};
 const qty=(v,label)=>{assert(typeof v==='string'&&/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(v),'Invalid '+label);return BigInt(v)};
-export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='receipt',minimumConfirmations=null}){
+export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='receipt',minimumConfirmations=null,requireType4=false}){
  assert(typeof rpc==='function','RPC required');
+ assert(typeof requireType4==='boolean','requireType4 must be boolean');
  assert(Array.isArray(transactionHashes)&&transactionHashes.length>0,'Transaction hashes required');
  assert(['receipt','zero-local'].includes(dataFeeMode),'Invalid data fee mode');
  const chainId=qty(await rpc('eth_chainId',[]),'chainId');
@@ -17,6 +19,7 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   assert(!seen.has(transactionHash),'Duplicate transaction hash');seen.add(transactionHash);
   const [receipt,tx]=await Promise.all([rpc('eth_getTransactionReceipt',[transactionHash]),rpc('eth_getTransactionByHash',[transactionHash])]);
   assert(receipt&&tx,'Missing mined transaction or receipt');
+  if(requireType4)requireEip7702Receipt({transaction:tx,receipt,expectedChainId:'0x'+chainId.toString(16)});
   assert(hash(receipt.transactionHash,'receipt transaction hash')===transactionHash,'Receipt transaction mismatch');
   assert(hash(tx.hash,'transaction hash')===transactionHash,'Transaction mismatch');
   assert(qty(receipt.status,'status')===1n,'Transaction failed');
@@ -71,5 +74,5 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   assert(pinnedHead&&qty(pinnedHead.number,'rechecked head number')===head&&hash(pinnedHead.hash,'rechecked head hash')===headHash,'Confirmation head replaced');
   assert(qty(await rpc('eth_chainId',[]),'post-confirmation chainId')===chainId,'RPC chain changed after confirmation');
  }
- return {chainId:chainId.toString(),receipts:evidence,confirmationEvidence,verifiedByTool:false,caveat:'Single-RPC canonical consistency only; no independent finality proof. Include relayer, deployment, settlement and bridge fees separately. Receipt l1Fee support varies by chain.'};
+ return {chainId:chainId.toString(),receipts:evidence,confirmationEvidence,requireType4,verifiedByTool:false,caveat:'Single-RPC canonical consistency only; no independent finality proof. Include relayer, deployment, settlement and bridge fees separately. Receipt l1Fee support varies by chain.'};
 }
