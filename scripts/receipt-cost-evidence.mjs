@@ -36,6 +36,9 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   const executionWei=gasUsed*qty(receipt.effectiveGasPrice,'effectiveGasPrice');
   const blobUsed=receipt.blobGasUsed==null?0n:qty(receipt.blobGasUsed,'blobGasUsed');
   const blobWei=blobUsed===0n?0n:blobUsed*qty(receipt.blobGasPrice,'blobGasPrice');
+  // Never silently discard an explicit nonzero L1 fee, even on a local chain.
+  // The zero-local exemption means no L1 data charge, not an unpriced charge.
+  if(dataFeeMode==='zero-local'&&receipt.l1Fee!=null)assert(qty(receipt.l1Fee,'local l1Fee')===0n,'Nonzero local L1 fee cannot be waived');
   const dataWei=dataFeeMode==='zero-local'?0n:qty(receipt.l1Fee,'l1Fee (required for receipt data fee mode)');
   evidence.push({transactionHash,blockHash,blockNumber:height.toString(),transactionIndex:index.toString(),executionWei:executionWei.toString(),blobWei:blobWei.toString(),dataWei:dataWei.toString(),canonical:true,success:true});
  }
