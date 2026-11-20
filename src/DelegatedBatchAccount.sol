@@ -10,6 +10,7 @@ contract DelegatedBatchAccount {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     bytes32 private constant INTENT_TYPEHASH =
         keccak256("BatchIntent(bytes32 payoutsHash,uint256 nonce,uint256 deadline,uint256 relayerFee)");
+    bytes32 private constant CANCEL_TYPEHASH = keccak256("CancelIntent(uint256 nonce,uint256 deadline)");
     bytes32 private constant NAME_HASH = keccak256("ZeroGasDelegatedBatch");
     bytes32 private constant VERSION_HASH = keccak256("2");
     uint256 private constant SECP256K1_HALF_N =
@@ -31,6 +32,7 @@ contract DelegatedBatchAccount {
     error Reentrant();
     error InsufficientBalance();
 
+    event IntentCancelled(uint256 indexed nonce, bytes32 indexed digest, address indexed submitter);
     event BatchExecuted(bytes32 indexed digest, uint256 indexed nonce, address indexed relayer, uint256 count, uint256 relayerFee);
 
     function nonce() public view returns (uint256 n) {
@@ -52,6 +54,29 @@ contract DelegatedBatchAccount {
         bytes32 payoutsHash = keccak256(abi.encode(recipients, amounts));
         bytes32 structHash = keccak256(abi.encode(INTENT_TYPEHASH, payoutsHash, expectedNonce, deadline, relayerFee));
         return keccak256(abi.encodePacked(bytes2(0x1901), domainSeparator(), structHash));
+    }
+
+    /// @notice Permissionless cancellation of the currently active batch nonce.
+    /// @dev The signature is bound to this account, chain and implementation by the domain.
+    ///      No ETH is transferred; the submitting relayer pays its own network fee.
+    function cancelDigest(uint256 expectedNonce, uint256 deadline) public view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(CANCEL_TYPEHASH, expectedNonce, deadline));
+        return keccak256(abi.encodePacked(bytes2(0x1901), domainSeparator(), structHash));
+    }
+
+    function cancelIntent(uint256 expectedNonce, uint256 deadline, bytes calldata signature) external {
+        bytes32 lockSlot = LOCK_SLOT;
+        uint256 locked;
+        assembly { locked := sload(lockSlot) }
+        if (locked != 0) revert Reentrant();
+        if (block.timestamp > deadline) revert Expired();
+        uint256 currentNonce = nonce();
+        if (expectedNonce != currentNonce) revert InvalidInput();
+        bytes32 digest = cancelDigest(expectedNonce, deadline);
+        if (!_validEOASignature(digest, signature)) revert InvalidSignature();
+        bytes32 nonceSlot = NONCE_SLOT;
+        assembly { sstore(nonceSlot, add(currentNonce, 1)) }
+        emit IntentCancelled(currentNonce, digest, msg.sender);
     }
 
     /// @notice Anyone may relay a signed batch. The delegated EOA pays recipients and the caller.
