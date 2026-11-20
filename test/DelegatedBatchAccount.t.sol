@@ -50,6 +50,46 @@ contract DelegatedBatchAccountTest {
         return abi.encodePacked(r, s, v);
     }
 
+    function testSignedCancellationInvalidatesOutstandingBatch() public {
+        (address[] memory to, uint256[] memory amounts) = _batch();
+        uint256 deadline = block.timestamp + 1000;
+        bytes memory paymentSignature = _signature(to, amounts, 0, deadline, 0);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, account.cancelDigest(0, deadline));
+        bytes memory cancelSignature = abi.encodePacked(r, s, v);
+        vm.prank(RELAYER);
+        account.cancelIntent(0, deadline, cancelSignature);
+        require(account.nonce() == 1, "cancel nonce");
+        vm.expectRevert(DelegatedBatchAccount.InvalidInput.selector);
+        account.executeBatch(to, amounts, 0, deadline, 0, paymentSignature);
+        require(RECIPIENT_A.balance == 0 && RECIPIENT_B.balance == 0, "cancel transferred funds");
+    }
+
+    function testCancellationReplayAndTamperFail() public {
+        uint256 deadline = block.timestamp + 1000;
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, account.cancelDigest(0, deadline));
+        bytes memory sig = abi.encodePacked(r, s, v);
+        vm.expectRevert(DelegatedBatchAccount.InvalidSignature.selector);
+        account.cancelIntent(0, deadline + 1, sig);
+        account.cancelIntent(0, deadline, sig);
+        vm.expectRevert(DelegatedBatchAccount.InvalidInput.selector);
+        account.cancelIntent(0, deadline, sig);
+    }
+
+    function testCancellationWrongChainAndExpiryFail() public {
+        uint256 deadline = block.timestamp + 1;
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, account.cancelDigest(0, deadline));
+        bytes memory sig = abi.encodePacked(r, s, v);
+        uint256 chain = block.chainid;
+        vm.chainId(chain + 1);
+        vm.expectRevert(DelegatedBatchAccount.InvalidSignature.selector);
+        account.cancelIntent(0, deadline, sig);
+        vm.chainId(chain);
+        vm.warp(deadline + 1);
+        vm.expectRevert(DelegatedBatchAccount.Expired.selector);
+        account.cancelIntent(0, deadline, sig);
+        require(account.nonce() == 0, "nonce changed");
+    }
+
     function testPermissionlessRelayerAndBalances() public {
         (address[] memory to, uint256[] memory amounts) = _batch();
         uint256 deadline = block.timestamp + 1000;
