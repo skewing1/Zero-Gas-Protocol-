@@ -12,9 +12,9 @@ export function compareAllInCosts({paths}){
   // Payer-perspective accounting: relayer compensation is an explicit transfer paid by the user,
   // distinct from the relayer's operational expenses. Both must be priced; neither is inferred from gas.
   let extra=0n;const missing=[];for(const k of ['relayerCompensationWei','relayerOperatingCostWei','deploymentCostWei','settlementCostWei','otherCostWei']){if(p[k]===null)missing.push(p.id+'.'+k);else extra+=integer(p[k],k)}
-  return {outcomes,receipts,total:receipts+extra,missing}
+  return {outcomes,receipts,total:receipts+extra,missing,hashes}
  };
- const a=check(paths[0]),b=check(paths[1]);if(a.outcomes.size!==b.outcomes.size||[...a.outcomes].some(([k,v])=>b.outcomes.get(k)!==v))throw Error('Recipient outcomes differ');
+ const a=check(paths[0]),b=check(paths[1]);if([...a.hashes].some(h=>b.hashes.has(h)))throw Error('Receipt reused across baseline and candidate');if(a.outcomes.size!==b.outcomes.size||[...a.outcomes].some(([k,v])=>b.outcomes.get(k)!==v))throw Error('Recipient outcomes differ');
  const missingCosts=[...a.missing,...b.missing],costInputsComplete=missingCosts.length===0;
  // Supplied receipts and balances are assertions, not independently authenticated chain evidence.
  // Even complete cost inputs cannot establish measured savings without RPC receipt verification.
