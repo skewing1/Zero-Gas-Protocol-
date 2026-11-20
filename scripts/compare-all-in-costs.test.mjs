@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {compareAllInCosts} from './compare-all-in-costs.mjs';
+const p=(id,gas)=>({id,outcomes:[{recipient:'0x'+'ab'.repeat(20),receivedWei:'100'}],receipts:[{transactionHash:'0x'+(id==='baseline'?'11':'22').repeat(32),status:'success',gasUsed:gas,effectiveGasPriceWei:'1',l1DataFeeWei:'0',blobFeeWei:'0'}],relayerOperatingCostWei:'0',deploymentCostWei:'0',settlementCostWei:'0',otherCostWei:'0'});
+const fixture=()=>({paths:[p('baseline','100'),p('candidate','50')]});
+test('verified 50 percent',()=>assert.equal(compareAllInCosts(fixture()).savingsBasisPoints,'5000'));
+test('unknown cost forbids claim',()=>{const x=fixture();x.paths[1].settlementCostWei=null;assert.equal(compareAllInCosts(x).savingsBasisPoints,null)});
+test('different recipients rejected',()=>{const x=fixture();x.paths[1].outcomes[0].receivedWei='99';assert.throws(()=>compareAllInCosts(x),/outcomes differ/)});
+test('duplicate receipt rejected',()=>{const x=fixture();x.paths[0].receipts.push(x.paths[0].receipts[0]);assert.throws(()=>compareAllInCosts(x),/receipt/)});
+test('L1 fee counted',()=>{const x=fixture();x.paths[1].receipts[0].l1DataFeeWei='60';assert.equal(compareAllInCosts(x).savingsBasisPoints,'-1000')});
+test('missing costs fail closed',()=>{const x=fixture();delete x.paths[0].otherCostWei;assert.throws(()=>compareAllInCosts(x),/canonical/)});
+test('reverted receipt rejected',()=>{const x=fixture();x.paths[1].receipts[0].status='reverted';assert.throws(()=>compareAllInCosts(x),/receipt/)});
