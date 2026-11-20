@@ -42,3 +42,23 @@ test('accepts explicitly zero local L1 fee',async()=>{
 test('rejects malformed local L1 fee instead of ignoring it',async()=>{
  await assert.rejects(captureReceiptCosts({rpc:mock({chain:'0x7a69',receipt:{l1Fee:'-1'}}),transactionHashes:[H],dataFeeMode:'zero-local'}),/local l1Fee/);
 });
+
+test('requires explicit confirmation depth when requested',async()=>{
+ const rpc=async(method)=>method==='eth_blockNumber'?'0x10':mock()(method);
+ await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/insufficient receipt confirmations/);
+});
+test('accepts confirmed canonical receipt without claiming finality',async()=>{
+ const rpc=async(method)=>method==='eth_blockNumber'?'0x11':mock()(method);
+ const x=await captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'});
+ assert.equal(x.confirmationEvidence[0].observedConfirmations,'2');
+ assert.equal(x.verifiedByTool,false);
+});
+test('rejects post-head block replacement',async()=>{
+ let blockReads=0;
+ const rpc=async(method)=>{
+  if(method==='eth_blockNumber')return '0x11';
+  if(method==='eth_getBlockByNumber'&&++blockReads===3)return {hash:'0x'+'c'.repeat(64),number:'0x10',transactions:[H]};
+  return mock()(method);
+ };
+ await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/Reorg after confirmation check/);
+});

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Read-only mined receipt cost capture; no signing or broadcasts.
 import assert from 'node:assert/strict';
+import {enforceReceiptConfirmations} from './receipt-confirmation-policy.mjs';
 const hash=(v,label)=>{assert(typeof v==='string'&&/^0x[0-9a-fA-F]{64}$/.test(v),'Invalid '+label);return v.toLowerCase()};
 const qty=(v,label)=>{assert(typeof v==='string'&&/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(v),'Invalid '+label);return BigInt(v)};
-export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='receipt'}){
+export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='receipt',minimumConfirmations=null}){
  assert(typeof rpc==='function','RPC required');
  assert(Array.isArray(transactionHashes)&&transactionHashes.length>0,'Transaction hashes required');
  assert(['receipt','zero-local'].includes(dataFeeMode),'Invalid data fee mode');
@@ -47,5 +48,18 @@ export async function captureReceiptCosts({rpc,transactionHashes,dataFeeMode='re
   const b=await rpc('eth_getBlockByNumber',['0x'+BigInt(e.blockNumber).toString(16),false]);
   assert(b&&hash(b.hash,'rechecked block hash')===e.blockHash,'Reorg after receipt capture');
  }
- return {chainId:chainId.toString(),receipts:evidence,verifiedByTool:false,caveat:'Single-RPC canonical consistency only; no independent finality proof. Include relayer, deployment, settlement and bridge fees separately. Receipt l1Fee support varies by chain.'};
+ // An explicit depth requirement prevents reporting shallow receipts as sufficiently confirmed.
+ // Depth is chain-relative and does not constitute economic finality.
+ let confirmationEvidence=null;
+ if(minimumConfirmations!==null){
+  assert(typeof minimumConfirmations==='string','minimumConfirmations must be a canonical decimal string');
+  const head=qty(await rpc('eth_blockNumber',[]),'chain head');
+  confirmationEvidence=evidence.map(e=>({transactionHash:e.transactionHash,...enforceReceiptConfirmations({receiptBlockNumber:e.blockNumber,headBlockNumber:head.toString(),minimumConfirmations})}));
+  // Check canonical identity again after reading the head.
+  for(const e of evidence){
+   const b=await rpc('eth_getBlockByNumber',['0x'+BigInt(e.blockNumber).toString(16),false]);
+   assert(b&&hash(b.hash,'post-head block hash')===e.blockHash,'Reorg after confirmation check');
+  }
+ }
+ return {chainId:chainId.toString(),receipts:evidence,confirmationEvidence,verifiedByTool:false,caveat:'Single-RPC canonical consistency only; no independent finality proof. Include relayer, deployment, settlement and bridge fees separately. Receipt l1Fee support varies by chain.'};
 }
