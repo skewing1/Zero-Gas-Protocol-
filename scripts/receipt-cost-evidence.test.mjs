@@ -48,17 +48,57 @@ test('requires explicit confirmation depth when requested',async()=>{
  await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/insufficient receipt confirmations/);
 });
 test('accepts confirmed canonical receipt without claiming finality',async()=>{
- const rpc=async(method)=>method==='eth_blockNumber'?'0x11':mock()(method);
+ const rpc=async(method,params)=>method==='eth_blockNumber'?'0x11':method==='eth_getBlockByNumber'&&params[0]==='0x11'?{hash:'0x'+'d'.repeat(64),number:'0x11'}:mock()(method);
  const x=await captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'});
  assert.equal(x.confirmationEvidence[0].observedConfirmations,'2');
  assert.equal(x.verifiedByTool,false);
 });
 test('rejects post-head block replacement',async()=>{
  let blockReads=0;
- const rpc=async(method)=>{
+ const rpc=async(method,params)=>{
   if(method==='eth_blockNumber')return '0x11';
+  if(method==='eth_getBlockByNumber'&&params[0]==='0x11')return {hash:'0x'+'d'.repeat(64),number:'0x11'};
   if(method==='eth_getBlockByNumber'&&++blockReads===3)return {hash:'0x'+'c'.repeat(64),number:'0x10',transactions:[H]};
   return mock()(method);
  };
  await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/Reorg after confirmation check/);
+});
+
+test('rejects confirmation head replacement at same height',async()=>{
+ let headReads=0;
+ const rpc=async(method,params)=>{
+  if(method==='eth_blockNumber')return '0x11';
+  if(method==='eth_getBlockByNumber'&&params[0]==='0x11')return {number:'0x11',hash:'0x'+(++headReads===1?'d':'e').repeat(64)};
+  return mock()(method);
+ };
+ await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/Confirmation head replaced/);
+});
+test('rejects head height regression after confirmation capture',async()=>{
+ let reads=0;
+ const rpc=async(method,params)=>{
+  if(method==='eth_blockNumber')return ++reads===1?'0x11':'0x10';
+  if(method==='eth_getBlockByNumber'&&params[0]==='0x11')return {number:'0x11',hash:'0x'+'d'.repeat(64)};
+  return mock()(method);
+ };
+ await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/Confirmation head regressed/);
+});
+test('accepts advancing head with pinned original canonical head',async()=>{
+ let reads=0;
+ const rpc=async(method,params)=>{
+  if(method==='eth_blockNumber')return ++reads===1?'0x11':'0x12';
+  if(method==='eth_getBlockByNumber'&&params[0]==='0x11')return {number:'0x11',hash:'0x'+'d'.repeat(64)};
+  return mock()(method);
+ };
+ const x=await captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'});
+ assert.equal(x.confirmationEvidence[0].observedConfirmations,'2');
+});
+test('rejects RPC chain switch during confirmation',async()=>{
+ let reads=0;
+ const rpc=async(method,params)=>{
+  if(method==='eth_chainId')return ++reads===3?'0x1':'0x14a34';
+  if(method==='eth_blockNumber')return '0x11';
+  if(method==='eth_getBlockByNumber'&&params[0]==='0x11')return {number:'0x11',hash:'0x'+'d'.repeat(64)};
+  return mock()(method);
+ };
+ await assert.rejects(captureReceiptCosts({rpc,transactionHashes:[H],minimumConfirmations:'2'}),/RPC chain changed after confirmation/);
 });
