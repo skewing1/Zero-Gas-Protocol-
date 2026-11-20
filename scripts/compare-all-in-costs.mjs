@@ -13,8 +13,11 @@ export function compareAllInCosts({paths}){
   return {outcomes,receipts,total:receipts+extra,missing}
  };
  const a=check(paths[0]),b=check(paths[1]);if(a.outcomes.size!==b.outcomes.size||[...a.outcomes].some(([k,v])=>b.outcomes.get(k)!==v))throw Error('Recipient outcomes differ');
- const missingCosts=[...a.missing,...b.missing],verifiedAllIn=missingCosts.length===0;
- const savingsBasisPoints=verifiedAllIn&&a.total>0n?((a.total-b.total)*10000n/a.total).toString():null;
- return {equivalentOutcomes:true,baselineReceiptWei:a.receipts.toString(),candidateReceiptWei:b.receipts.toString(),baselineKnownCostWei:a.total.toString(),candidateKnownCostWei:b.total.toString(),missingCosts,verifiedAllIn,savingsBasisPoints,exceeds45Percent:savingsBasisPoints===null?null:BigInt(savingsBasisPoints)>4500n};
+ const missingCosts=[...a.missing,...b.missing],costInputsComplete=missingCosts.length===0;
+ // Supplied receipts and balances are assertions, not independently authenticated chain evidence.
+ // Even complete cost inputs cannot establish measured savings without RPC receipt verification.
+ const verifiedAllIn=false;
+ const savingsBasisPoints=costInputsComplete&&a.total>0n?((a.total-b.total)*10000n/a.total).toString():null;
+ return {equivalentOutcomes:true,baselineReceiptWei:a.receipts.toString(),candidateReceiptWei:b.receipts.toString(),baselineKnownCostWei:a.total.toString(),candidateKnownCostWei:b.total.toString(),missingCosts,costInputsComplete,verifiedAllIn,savingsBasisPoints,measuredSavingsBasisPoints:null,exceeds45Percent:null};
 }
 if(process.argv[1]?.endsWith('compare-all-in-costs.mjs')&&process.argv[2]){try{console.log(JSON.stringify(compareAllInCosts(JSON.parse(readFileSync(process.argv[2],'utf8'))),null,2))}catch(e){console.error(e.message);process.exitCode=1}}
