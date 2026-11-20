@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {receiptBreakEven} from './receipt-break-even.mjs';
+const base = () => ({baselineReceiptWei:'1000',candidateReceiptWei:'400',baselinePerBatchOverheadWei:'0',candidatePerBatchOverheadWei:'100',baselineSetupWei:'0',candidateSetupWei:'0',amortizationBatches:'1'});
+test('candidate with relayer costs has 50% modeled savings',()=>{const r=receiptBreakEven(base());assert.equal(r.savingsBps,'5000');assert.equal(r.maxCandidatePerBatchOverheadWei,'150');assert.equal(r.meetsTarget,true)});
+test('overhead exceeding break even fails',()=>{const r=receiptBreakEven({...base(),candidatePerBatchOverheadWei:'151'});assert.equal(r.meetsTarget,false)});
+test('setup cost amortized with ceiling',()=>{const r=receiptBreakEven({...base(),candidateSetupWei:'101',amortizationBatches:'10'});assert.equal(r.candidateAllInWei,'511')});
+test('setup costs not omitted when greater than batch count',()=>{const r=receiptBreakEven({...base(),candidateSetupWei:'1',amortizationBatches:'1000'});assert.equal(r.candidateAllInWei,'501')});
+test('negative savings supported without false pass',()=>{const r=receiptBreakEven({...base(),candidatePerBatchOverheadWei:'2000'});assert.equal(r.meetsTarget,false);assert.equal(r.maxCandidatePerBatchOverheadWei,'150')});
+test('impossible target returns null budget',()=>{const r=receiptBreakEven({...base(),candidateReceiptWei:'900'});assert.equal(r.maxCandidatePerBatchOverheadWei,null)});
+test('zero amortization rejected',()=>assert.throws(()=>receiptBreakEven({...base(),amortizationBatches:'0'}),/positive/));
+test('fractional or negative wei rejected',()=>assert.throws(()=>receiptBreakEven({...base(),candidateSetupWei:'1.5'}),/unsigned/));
+test('target bounds rejected',()=>assert.throws(()=>receiptBreakEven({...base(),targetSavingsBps:10001}),/targetSavingsBps/));
+test('bigint arithmetic exact above JS safe integer',()=>{const r=receiptBreakEven({...base(),baselineReceiptWei:'100000000000000000000',candidateReceiptWei:'50000000000000000000',candidatePerBatchOverheadWei:'0'});assert.equal(r.savingsBps,'5000')});
