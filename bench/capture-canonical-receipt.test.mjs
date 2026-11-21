@@ -52,3 +52,14 @@ test('accepts standard hash-only canonical block response',async()=>{
 test('rejects wrong hash in hash-only canonical block response',async()=>await assert.rejects(
  captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:['0x'+'ee'.repeat(32)]}}),H),
  /inclusion changed/));
+
+test('rejects final canonical block number mismatch despite matching block hash',async()=>await assert.rejects(
+ captureReceipt(fixture({finalBlock:{hash:B,number:'0xb',transactions:[H]}}),H,{requireType4:true}),
+ /block changed/));
+test('rejects final canonical block missing number despite matching hash',async()=>await assert.rejects(
+ captureReceipt(fixture({finalBlock:{hash:B,transactions:[H]}}),H,{requireType4:true}),
+ /finalBlock.number/));
+test('accepts matching final block number with hash-only transactions',async()=>{
+ const result=await captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:[H]}}),H,{requireType4:true});
+ assert.equal(result.blockNumber,'10');
+});

@@ -42,7 +42,8 @@ export async function captureReceipt(rpc,txHash,{confirmations=2,expectedChainId
  const tip=quantity(await rpc('eth_blockNumber',[]),'tip');
  if(tip<blockNumber+BigInt(confirmations)-1n)throw Error('insufficient confirmations');
  const finalBlock=await rpc('eth_getBlockByNumber',['0x'+blockNumber.toString(16),false]);
- if(!finalBlock||!same(hash(finalBlock.hash,'finalBlock.hash'),blockHash))throw Error('block changed during verification');
+ if(!finalBlock||!same(hash(finalBlock.hash,'finalBlock.hash'),blockHash)||
+    quantity(finalBlock.number,'finalBlock.number')!==blockNumber)throw Error('block changed during verification');
  if(!Array.isArray(finalBlock.transactions)||receiptIndex>=BigInt(finalBlock.transactions.length)||
     !finalBlock.transactions[Number(receiptIndex)]||
     !same(hash(typeof finalBlock.transactions[Number(receiptIndex)] === 'string' ? finalBlock.transactions[Number(receiptIndex)] : finalBlock.transactions[Number(receiptIndex)].hash,'finalBlock.transactions[index].hash'),target))
