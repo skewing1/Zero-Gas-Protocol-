@@ -6,10 +6,10 @@ function fixture(overrides={}){
  const receipt={transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',transactionIndex:'0x0',...overrides.receipt};
  const tx={hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',transactionIndex:'0x0',...overrides.tx};
  const block={hash:B,number:'0xa',transactions:[{hash:H}],...overrides.block};
- let chainCalls=0,blockCalls=0;
+ let chainCalls=0,blockCalls=0,receiptCalls=0;
  return async(method)=>{
   if(method==='eth_chainId'){chainCalls++;return chainCalls>1&&overrides.finalChain!==undefined?overrides.finalChain:'0x2105';}
-  if(method==='eth_getTransactionReceipt')return overrides.noReceipt?null:receipt;
+  if(method==='eth_getTransactionReceipt'){receiptCalls++;return receiptCalls>1&&Object.hasOwn(overrides,'finalReceipt')?overrides.finalReceipt:(overrides.noReceipt?null:receipt);}
   if(method==='eth_getTransactionByHash')return tx;
   if(method==='eth_getBlockByNumber'){blockCalls++;return blockCalls>1&&overrides.finalBlock?overrides.finalBlock:block;}
   if(method==='eth_blockNumber')return overrides.tip??'0xb';
@@ -63,3 +63,10 @@ test('accepts matching final block number with hash-only transactions',async()=>
  const result=await captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:[H]}}),H,{requireType4:true});
  assert.equal(result.blockNumber,'10');
 });
+
+test('rejects receipt disappearance after canonical confirmation',async()=>await assert.rejects(
+ captureReceipt(fixture({finalReceipt:null}),H,{requireType4:true}),/receipt disappeared/));
+test('rejects receipt fee mutation after canonical confirmation',async()=>await assert.rejects(
+ captureReceipt(fixture({finalReceipt:{transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x3',type:'0x4',transactionIndex:'0x0'}}),H,{requireType4:true}),/receipt changed/));
+test('rejects receipt index mutation after canonical confirmation',async()=>await assert.rejects(
+ captureReceipt(fixture({finalReceipt:{transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',transactionIndex:'0x1'}}),H,{requireType4:true}),/receipt changed/));
