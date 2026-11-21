@@ -7,7 +7,7 @@ const fixture=()=>({
  eth_getTransactionReceipt:{transactionHash:tx,blockHash:bh,blockNumber:'0x5',status:'0x1',type:'0x4',gasUsed:'0x5208',effectiveGasPrice:'0x2'},
  eth_getBlockByHash:{hash:bh,number:'0x5',transactions:[tx]},
  eth_getBlockByNumber:{hash:bh,number:'0x5',transactions:[tx]},
- eth_getTransactionByHash:{hash:tx,blockHash:bh,type:'0x4'}
+ eth_getTransactionByHash:{hash:tx,blockHash:bh,blockNumber:'0x5',chainId:'0x7a69',type:'0x4'}
 });
 const inspect=(f)=>inspectMinedReceipt(async method=>f[method],tx,31337);
 test('canonical type-4 receipt reconciles execution fee but not all-in savings',async()=>{
@@ -22,3 +22,9 @@ test('missing transaction in block fails',async()=>{const f=fixture();f.eth_getB
 test('transaction inclusion mismatch fails',async()=>{const f=fixture();f.eth_getTransactionByHash.blockHash='0x'+'33'.repeat(32);await assert.rejects(inspect(f),/inclusion/)});
 test('zero gas receipt fails',async()=>{const f=fixture();f.eth_getTransactionReceipt.gasUsed='0x0';await assert.rejects(inspect(f),/Zero gas/)});
 test('non-loopback RPC endpoints rejected',()=>{assert.throws(()=>localRpc('https://rpc.example.org'),/loopback/);assert.throws(()=>localRpc('http://192.168.1.1:8545'),/loopback/)});
+
+test('rejects legacy receipt mislabeled as a type-4 transaction',async()=>{const f=fixture();f.eth_getTransactionReceipt.type='0x2';await assert.rejects(inspect(f),/type mismatch/)});
+test('rejects consistent non-7702 transaction',async()=>{const f=fixture();f.eth_getTransactionReceipt.type='0x2';f.eth_getTransactionByHash.type='0x2';await assert.rejects(inspect(f),/type-4/)});
+test('rejects transaction block number mismatch',async()=>{const f=fixture();f.eth_getTransactionByHash.blockNumber='0x6';await assert.rejects(inspect(f),/block mismatch/)});
+test('rejects transaction chain mismatch',async()=>{const f=fixture();f.eth_getTransactionByHash.chainId='0x1';await assert.rejects(inspect(f),/chain ID mismatch/)});
+test('rejects missing transaction chain metadata',async()=>{const f=fixture();delete f.eth_getTransactionByHash.chainId;await assert.rejects(inspect(f),/RPC hex/)});
