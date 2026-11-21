@@ -6,3 +6,14 @@ solc_version = '0.8.26'
 evm_version = 'cancun'
 optimizer = true
 optimizer_runs = 200
+
+# Opt-in only: EIP-7702 requires a Prague-capable execution environment.
+# Keep the existing Cancun default unchanged for legacy regression coverage.
+[profile.prague]
+src = 'src'
+test = 'test'
+out = 'out'
+solc_version = '0.8.30'
+evm_version = 'prague'
+optimizer = true
+optimizer_runs = 200
