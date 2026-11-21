@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {checkReceiptConfirmations} from './receipt-confirmation.mjs';
+const h = '0x'+'ab'.repeat(32);
+const evidence={status:'success',blockNumber:'5',blockHash:h};
+const rpc=async method=>method==='eth_blockNumber'?'0x10':{hash:h,number:'0x5'};
+test('12 confirmations, never implies verified savings',async()=>assert.deepEqual(await checkReceiptConfirmations(rpc,evidence),{confirmations:'12',canonicalAtCheck:true,consensusAuthenticated:false,verifiedAllIn:false}));
+test('reject insufficient depth',async()=>assert.rejects(checkReceiptConfirmations(rpc,evidence,13),/Insufficient/));
+test('reject malformed decimal block heights',async()=>{for(const value of ['0x5','5.0','5e0',' 5','-1','05',5,null]) await assert.rejects(checkReceiptConfirmations(rpc,{...evidence,blockNumber:value}),/Invalid receipt block number/)});
+test('reject canonical mismatch',async()=>assert.rejects(checkReceiptConfirmations(async m=>m==='eth_blockNumber'?'0x10':{hash:'0x'+'cd'.repeat(32),number:'0x5'},evidence),/changed/));
+test('reject tip retreat during canonical lookup',async()=>{let n=0;await assert.rejects(checkReceiptConfirmations(async m=>m==='eth_blockNumber'?(++n===1?'0x10':'0x9'):{hash:h,number:'0x5'},evidence),/retreated/)});
+test('reject invalid second tip quantity',async()=>{let n=0;await assert.rejects(checkReceiptConfirmations(async m=>m==='eth_blockNumber'?(++n===1?'0x10':'16'):{hash:h,number:'0x5'},evidence),/canonical RPC quantity/)});
+test('reject failed receipt',async()=>assert.rejects(checkReceiptConfirmations(rpc,{...evidence,status:'failed'}),/Successful/));
