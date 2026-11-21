@@ -79,3 +79,13 @@ test('rejects transaction index mutation after canonical receipt check',async()=
  captureReceipt(fixture({finalTx:{hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',transactionIndex:'0x1'}}),H,{requireType4:true}),/transaction changed/));
 test('rejects confirmation depth loss during final verification',async()=>await assert.rejects(
  captureReceipt(fixture({finalTip:'0xa'}),H,{confirmations:2}),/confirmations lost/));
+
+// Final confirmation count must describe the last observed tip, not a stale earlier tip.
+test('reports final confirmation depth when tip advances',async()=>{
+ const result=await captureReceipt(fixture({tip:'0xb',finalTip:'0xd'}),H,{confirmations:2});
+ assert.equal(result.confirmationsObserved,'4');
+});
+test('reports final confirmation depth when tip retreats but remains sufficient',async()=>{
+ const result=await captureReceipt(fixture({tip:'0xd',finalTip:'0xb'}),H,{confirmations:2});
+ assert.equal(result.confirmationsObserved,'2');
+});

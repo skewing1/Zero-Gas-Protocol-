@@ -75,7 +75,7 @@ export async function captureReceipt(rpc,txHash,{confirmations=2,expectedChainId
   kind:'READ_ONLY_RPC_RECEIPT_OBSERVATION_NOT_OUTCOME_PROOF',
   chainId:chain.toString(),txHash:target,blockHash,blockNumber:blockNumber.toString(),
   transactionType:type.toString(),transactionIndex:receiptIndex.toString(),gasUsed:gas.toString(),effectiveGasPrice:price.toString(),
-  receiptExecutionWei:(gas*price).toString(),confirmationsObserved:(tip-blockNumber+1n).toString(),
+  receiptExecutionWei:(gas*price).toString(),confirmationsObserved:(finalTip-blockNumber+1n).toString(),
   limitations:'RPC observations are not independently authenticated consensus; recipient balances, L2 data fees, relayer, authorization, deployment and settlement costs remain unverified.'
  });
 }
