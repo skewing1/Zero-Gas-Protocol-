@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {breakEven} from './break-even.mjs';
+const run=(baseline,candidate,overhead='0')=>breakEven({baselineAllInWei:baseline,candidateReceiptWei:candidate,candidateKnownOverheadWei:overhead});
+test('strict threshold: 100 baseline permits at most 54 candidate',()=>{assert.equal(run('100','40').remainingOverheadBudgetWei,'14');assert.equal(run('100','55').feasibleWithKnownCosts,false)});
+test('fractional threshold rounds correctly in integer wei',()=>{assert.equal(run('101','0').maxCandidateTotalWeiForStrict45Percent,'55');assert.equal(run('101','55').feasibleWithKnownCosts,true);assert.equal(run('101','56').feasibleWithKnownCosts,false)});
+test('known relayer and settlement costs consume headroom',()=>{assert.equal(run('100','40','15').feasibleWithKnownCosts,false)});
+test('large integer amounts remain exact',()=>{assert.equal(run('100000000000000000000','0').maxCandidateTotalWeiForStrict45Percent,'54999999999999999999')});
+test('zero baseline rejected',()=>assert.throws(()=>run('0','0'),/zero baseline/));
+test('fractional, negative and number values rejected',()=>{for(const v of ['1.5','-1',1])assert.throws(()=>run('100',v),/decimal wei/)});
+test('missing overhead rejected',()=>assert.throws(()=>breakEven({baselineAllInWei:'100',candidateReceiptWei:'10'}),/candidateKnownOverheadWei/));
+test('no fabricated savings claim in output',()=>assert.equal(run('100','10').kind,'UNVERIFIED_COST_SENSITIVITY'));
