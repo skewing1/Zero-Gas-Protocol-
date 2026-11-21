@@ -43,10 +43,13 @@ function evaluate(side, label) {
   }
   if (!side.extras || typeof side.extras !== 'object') throw Error(label + ': missing extras');
   let extraWei = 0n;
+  const extras = {};
   for (const field of ['relayerWei','dataWei','settlementWei','authorizationWei','deploymentWei']) {
-    extraWei += uint(side.extras[field], label + '.extras.' + field);
+    const value = uint(side.extras[field], label + '.extras.' + field);
+    extras[field] = value.toString();
+    extraWei += value;
   }
-  return {chainId, recipients, hashes, receiptWei, extraWei, totalWei:receiptWei + extraWei};
+  return {chainId, recipients, hashes, receiptWei, extraWei, extras, totalWei:receiptWei + extraWei};
 }
 export function compareEvidence(input) {
   if (!input || typeof input !== 'object') throw Error('missing evidence');
@@ -65,6 +68,12 @@ export function compareEvidence(input) {
   return {
     chainId:b.chainId.toString(), baselineWei:b.totalWei.toString(),
     candidateWei:c.totalWei.toString(), savedWei:saved.toString(),
+    // Auditable decomposition: receipt gas and every explicit non-receipt fee.
+    // Values are decimal wei strings, preserving integer precision.
+    breakdown:{
+      baseline:{receiptWei:b.receiptWei.toString(),...b.extras},
+      candidate:{receiptWei:c.receiptWei.toString(),...c.extras}
+    },
     // basis points, truncated toward zero; negative means candidate is more expensive
     savingsBasisPoints:(saved * 10000n / b.totalWei).toString(),
     exceeds45Percent: saved * 100n > b.totalWei * 45n,
