@@ -11,9 +11,14 @@ const receiptHeight = (v) => {
   if (typeof v !== 'string' || !/^(?:0|[1-9][0-9]*)$/.test(v)) throw Error('Invalid receipt block number');
   return BigInt(v);
 };
-export async function checkReceiptConfirmations(rpc, receiptEvidence, minimumConfirmations = 12) {
+export async function checkReceiptConfirmations(rpc, receiptEvidence, minimumConfirmations = 12, expectedChainId = null) {
   if (!Number.isSafeInteger(minimumConfirmations) || minimumConfirmations < 1) throw Error('Invalid confirmation threshold');
   if (!receiptEvidence || receiptEvidence.status !== 'success') throw Error('Successful receipt evidence required');
+  if (expectedChainId !== null) {
+    if (typeof expectedChainId !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(expectedChainId)) throw Error('Expected chain ID must be canonical RPC quantity');
+    const actualChainId = quantity(await rpc('eth_chainId', []), 'RPC chain ID');
+    if (actualChainId !== BigInt(expectedChainId)) throw Error('RPC chain ID mismatch');
+  }
   const blockNumber = receiptHeight(receiptEvidence.blockNumber);
   const expectedHash = hash(receiptEvidence.blockHash);
   const latest = quantity(await rpc('eth_blockNumber', []), 'latest block');
