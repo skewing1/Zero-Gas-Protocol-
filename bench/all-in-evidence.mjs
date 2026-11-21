@@ -44,12 +44,16 @@ function evaluate(side, label) {
   for (const field of ['relayerWei','dataWei','settlementWei','authorizationWei','deploymentWei']) {
     extraWei += uint(side.extras[field], label + '.extras.' + field);
   }
-  return {chainId, recipients, receiptWei, extraWei, totalWei:receiptWei + extraWei};
+  return {chainId, recipients, hashes, receiptWei, extraWei, totalWei:receiptWei + extraWei};
 }
 export function compareEvidence(input) {
   if (!input || typeof input !== 'object') throw Error('missing evidence');
   const b = evaluate(input.baseline, 'baseline'), c = evaluate(input.candidate, 'candidate');
   if (b.chainId !== c.chainId) throw Error('chain mismatch: compare separately with explicit FX conversions');
+  // A receipt cannot independently prove both the baseline and candidate execution.
+  for (const hash of b.hashes) {
+    if (c.hashes.has(hash)) throw Error('cross-side duplicate transaction hash: non-independent evidence');
+  }
   if (b.recipients.size !== c.recipients.size) throw Error('recipient count mismatch');
   for (const [a,delta] of b.recipients) {
     if (!c.recipients.has(a) || c.recipients.get(a) !== delta) throw Error('recipient outcome mismatch: ' + a);
