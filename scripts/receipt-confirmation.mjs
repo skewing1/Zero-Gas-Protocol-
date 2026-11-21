@@ -1,0 +1,23 @@
+// Additional local-RPC stability gate; confirmations do not authenticate consensus.
+const quantity = (v, label) => {
+  if (typeof v !== 'string' || !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(v)) throw Error(`${label} must be canonical RPC quantity`);
+  return BigInt(v);
+};
+const hash = (v) => {
+  if (typeof v !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(v)) throw Error('Invalid block hash');
+  return v.toLowerCase();
+};
+export async function checkReceiptConfirmations(rpc, receiptEvidence, minimumConfirmations = 12) {
+  if (!Number.isSafeInteger(minimumConfirmations) || minimumConfirmations < 1) throw Error('Invalid confirmation threshold');
+  if (!receiptEvidence || receiptEvidence.status !== 'success') throw Error('Successful receipt evidence required');
+  const blockNumber = BigInt(receiptEvidence.blockNumber);
+  if (blockNumber < 0n) throw Error('Invalid receipt block number');
+  const expectedHash = hash(receiptEvidence.blockHash);
+  const latest = quantity(await rpc('eth_blockNumber', []), 'latest block');
+  if (latest < blockNumber) throw Error('Receipt block is above latest block');
+  const confirmations = latest - blockNumber + 1n;
+  if (confirmations < BigInt(minimumConfirmations)) throw Error('Insufficient confirmations');
+  const block = await rpc('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+  if (!block || hash(block.hash) !== expectedHash || quantity(block.number, 'canonical block number') !== blockNumber) throw Error('Canonical block changed');
+  return {confirmations: confirmations.toString(), canonicalAtCheck: true, consensusAuthenticated: false, verifiedAllIn: false};
+}
