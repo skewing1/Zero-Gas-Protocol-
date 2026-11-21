@@ -19,3 +19,7 @@ test('huge wei remains exact',()=>{const r=compareEvidence({baseline:side('10000
 
 test('same receipt on both sides is rejected',()=>assert.throws(()=>compareEvidence({baseline:side('100'),candidate:side('50')}),/cross-side duplicate/));
 test('case-insensitive cross-side receipt reuse is rejected',()=>{const c=candidate('50');c.transactions[0].hash=side('100').transactions[0].hash.toUpperCase().replace('0X','0x');assert.throws(()=>compareEvidence({baseline:side('100'),candidate:c}),/cross-side duplicate/);});
+
+test('zero recipient payment fails closed on baseline',()=>assert.throws(()=>compareEvidence({baseline:side('100','0'),candidate:candidate('50','0')}),/zero-value recipient outcome/));
+test('zero recipient payment fails closed on candidate',()=>assert.throws(()=>compareEvidence({baseline:side('100'),candidate:candidate('50','0')}),/zero-value recipient outcome/));
+test('positive one-wei recipient payment remains valid',()=>assert.equal(compareEvidence({baseline:side('100','1'),candidate:candidate('50','1')}).exceeds45Percent,true));
