@@ -23,7 +23,9 @@ function evaluate(side, label) {
   for (const [i,r] of side.recipients.entries()) {
     const a = address(r.address, label + '.recipients[' + i + ']');
     if (recipients.has(a)) throw Error(label + ': duplicate recipient');
-    recipients.set(a, uint(r.deltaWei, label + '.deltaWei'));
+    const delta = uint(r.deltaWei, label + '.deltaWei');
+    if (delta === 0n) throw Error(label + ': zero-value recipient outcome is not a payment');
+    recipients.set(a, delta);
   }
   const hashes = new Set();
   let receiptWei = 0n;
