@@ -44,3 +44,11 @@ test('includes canonical transaction index in read-only evidence',async()=>{
  const result=await captureReceipt(fixture(),H,{requireType4:true});
  assert.equal(result.transactionIndex,'0');
 });
+
+test('accepts standard hash-only canonical block response',async()=>{
+ const result=await captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:[H]}}),H,{requireType4:true});
+ assert.equal(result.transactionIndex,'0');
+});
+test('rejects wrong hash in hash-only canonical block response',async()=>await assert.rejects(
+ captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:['0x'+'ee'.repeat(32)]}}),H),
+ /inclusion changed/));
