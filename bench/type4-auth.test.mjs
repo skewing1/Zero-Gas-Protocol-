@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {inspectType4Authorization as inspect} from './type4-auth.mjs';
+const a={chainId:'0x2105',address:'0x'+'12'.repeat(20),nonce:'0x0',yParity:'0x1',r:'0x1',s:'0x2'};
+const tx={type:'0x4',chainId:'0x2105',authorizationList:[a]};
+test('valid structure is labeled unverified',()=>{const r=inspect(tx,{expectedChainId:8453});assert.equal(r.authorizationCount,1);assert.match(r.kind,/UNVERIFIED/)});
+test('accepts chain-agnostic authorization',()=>assert.equal(inspect({...tx,authorizationList:[{...a,chainId:'0x0'}]}).authorizationCount,1));
+test('rejects type 2',()=>assert.throws(()=>inspect({...tx,type:'0x2'}),/type-4/));
+test('rejects missing authorizations',()=>assert.throws(()=>inspect({...tx,authorizationList:[]}),/authorizationList/));
+test('rejects mismatched authorization chain',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,chainId:'0x1'}]}),/chain mismatch/));
+test('rejects wrong expected chain',()=>assert.throws(()=>inspect(tx,{expectedChainId:1}),/unexpected/));
+test('rejects invalid delegate',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,address:'0x123'}]}),/delegate/));
+test('rejects overflowing nonce',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,nonce:'0x10000000000000000'}]}),/nonce overflow/));
+test('rejects parity 2',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,yParity:'0x2'}]}),/parity/));
+test('rejects zero signature scalar',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,r:'0x0'}]}),/scalar/));
+test('rejects out-of-range signature scalar',()=>assert.throws(()=>inspect({...tx,authorizationList:[{...a,s:'0x'+BigInt('0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141').toString(16)}]}),/scalar/));
+test('rejects excessive tuple count',()=>assert.throws(()=>inspect({...tx,authorizationList:Array(1025).fill(a)}),/bound/));
