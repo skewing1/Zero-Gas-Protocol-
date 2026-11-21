@@ -23,3 +23,20 @@ test('case-insensitive cross-side receipt reuse is rejected',()=>{const c=candid
 test('zero recipient payment fails closed on baseline',()=>assert.throws(()=>compareEvidence({baseline:side('100','0'),candidate:candidate('50','0')}),/zero-value recipient outcome/));
 test('zero recipient payment fails closed on candidate',()=>assert.throws(()=>compareEvidence({baseline:side('100'),candidate:candidate('50','0')}),/zero-value recipient outcome/));
 test('positive one-wei recipient payment remains valid',()=>assert.equal(compareEvidence({baseline:side('100','1'),candidate:candidate('50','1')}).exceeds45Percent,true));
+
+test('breakdown exposes receipt gas and separately priced overhead',()=>{
+ const r=compareEvidence({baseline:side('100'),candidate:candidate('40','100','7')});
+ assert.deepEqual(r.breakdown.baseline,{receiptWei:'100',relayerWei:'0',dataWei:'0',settlementWei:'0',authorizationWei:'0',deploymentWei:'0'});
+ assert.deepEqual(r.breakdown.candidate,{receiptWei:'40',relayerWei:'7',dataWei:'0',settlementWei:'0',authorizationWei:'0',deploymentWei:'0'});
+ assert.equal(r.candidateWei,'47');
+});
+test('all fee categories reconcile exactly with total in large integer wei',()=>{
+ const c=candidate('2'); c.transactions[0].effectiveGasPrice='100000000000000000000000';
+ c.extras={relayerWei:'3',dataWei:'5',settlementWei:'7',authorizationWei:'11',deploymentWei:'13'};
+ const b=side('1000000000000000000000000');
+ const r=compareEvidence({baseline:b,candidate:c});
+ for(const name of ['baseline','candidate']){
+   const sum=Object.values(r.breakdown[name]).reduce((a,v)=>a+BigInt(v),0n);
+   assert.equal(sum.toString(),r[name+'Wei']);
+ }
+});
