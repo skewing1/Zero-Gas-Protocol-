@@ -48,6 +48,17 @@ export async function captureReceipt(rpc,txHash,{confirmations=2,expectedChainId
     !finalBlock.transactions[Number(receiptIndex)]||
     !same(hash(typeof finalBlock.transactions[Number(receiptIndex)] === 'string' ? finalBlock.transactions[Number(receiptIndex)] : finalBlock.transactions[Number(receiptIndex)].hash,'finalBlock.transactions[index].hash'),target))
     throw Error('block transaction inclusion changed during verification');
+ const finalReceipt=await rpc('eth_getTransactionReceipt',[target]);
+ if(!finalReceipt||typeof finalReceipt!=='object')throw Error('receipt disappeared during verification');
+ if(!same(hash(finalReceipt.transactionHash,'finalReceipt.transactionHash'),target)||
+    !same(hash(finalReceipt.blockHash,'finalReceipt.blockHash'),blockHash)||
+    quantity(finalReceipt.blockNumber,'finalReceipt.blockNumber')!==blockNumber||
+    quantity(finalReceipt.transactionIndex,'finalReceipt.transactionIndex')!==receiptIndex||
+    finalReceipt.status!=='0x1'||
+    quantity(finalReceipt.gasUsed,'finalReceipt.gasUsed')!==gas||
+    quantity(finalReceipt.effectiveGasPrice,'finalReceipt.effectiveGasPrice')!==price||
+    (finalReceipt.type!==undefined&&quantity(finalReceipt.type,'finalReceipt.type')!==type))
+    throw Error('receipt changed during verification');
  if(quantity(await rpc('eth_chainId',[]),'finalChainId')!==chain)throw Error('RPC chain changed during verification');
  return Object.freeze({
   kind:'READ_ONLY_RPC_RECEIPT_OBSERVATION_NOT_OUTCOME_PROOF',
