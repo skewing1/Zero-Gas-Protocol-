@@ -45,7 +45,7 @@ export async function captureReceipt(rpc,txHash,{confirmations=2,expectedChainId
  if(!finalBlock||!same(hash(finalBlock.hash,'finalBlock.hash'),blockHash))throw Error('block changed during verification');
  if(!Array.isArray(finalBlock.transactions)||receiptIndex>=BigInt(finalBlock.transactions.length)||
     !finalBlock.transactions[Number(receiptIndex)]||
-    !same(hash(finalBlock.transactions[Number(receiptIndex)].hash,'finalBlock.transactions[index].hash'),target))
+    !same(hash(typeof finalBlock.transactions[Number(receiptIndex)] === 'string' ? finalBlock.transactions[Number(receiptIndex)] : finalBlock.transactions[Number(receiptIndex)].hash,'finalBlock.transactions[index].hash'),target))
     throw Error('block transaction inclusion changed during verification');
  if(quantity(await rpc('eth_chainId',[]),'finalChainId')!==chain)throw Error('RPC chain changed during verification');
  return Object.freeze({
