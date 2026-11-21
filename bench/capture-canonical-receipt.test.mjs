@@ -6,13 +6,13 @@ function fixture(overrides={}){
  const receipt={transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',transactionIndex:'0x0',...overrides.receipt};
  const tx={hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',transactionIndex:'0x0',...overrides.tx};
  const block={hash:B,number:'0xa',transactions:[{hash:H}],...overrides.block};
- let chainCalls=0,blockCalls=0,receiptCalls=0;
+ let chainCalls=0,blockCalls=0,receiptCalls=0,txCalls=0,tipCalls=0;
  return async(method)=>{
   if(method==='eth_chainId'){chainCalls++;return chainCalls>1&&overrides.finalChain!==undefined?overrides.finalChain:'0x2105';}
   if(method==='eth_getTransactionReceipt'){receiptCalls++;return receiptCalls>1&&Object.hasOwn(overrides,'finalReceipt')?overrides.finalReceipt:(overrides.noReceipt?null:receipt);}
-  if(method==='eth_getTransactionByHash')return tx;
+  if(method==='eth_getTransactionByHash'){txCalls++;return txCalls>1&&Object.hasOwn(overrides,'finalTx')?overrides.finalTx:tx;}
   if(method==='eth_getBlockByNumber'){blockCalls++;return blockCalls>1&&overrides.finalBlock?overrides.finalBlock:block;}
-  if(method==='eth_blockNumber')return overrides.tip??'0xb';
+  if(method==='eth_blockNumber'){tipCalls++;return tipCalls>1&&overrides.finalTip!==undefined?overrides.finalTip:(overrides.tip??'0xb');}
   throw Error('unexpected method '+method);
  };
 }
@@ -70,3 +70,12 @@ test('rejects receipt fee mutation after canonical confirmation',async()=>await 
  captureReceipt(fixture({finalReceipt:{transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x3',type:'0x4',transactionIndex:'0x0'}}),H,{requireType4:true}),/receipt changed/));
 test('rejects receipt index mutation after canonical confirmation',async()=>await assert.rejects(
  captureReceipt(fixture({finalReceipt:{transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',transactionIndex:'0x1'}}),H,{requireType4:true}),/receipt changed/));
+
+test('rejects transaction disappearance after canonical receipt check',async()=>await assert.rejects(
+ captureReceipt(fixture({finalTx:null}),H,{requireType4:true}),/transaction disappeared/));
+test('rejects transaction type mutation after canonical receipt check',async()=>await assert.rejects(
+ captureReceipt(fixture({finalTx:{hash:H,blockHash:B,blockNumber:'0xa',type:'0x2',chainId:'0x2105',transactionIndex:'0x0'}}),H,{requireType4:true}),/transaction changed/));
+test('rejects transaction index mutation after canonical receipt check',async()=>await assert.rejects(
+ captureReceipt(fixture({finalTx:{hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',transactionIndex:'0x1'}}),H,{requireType4:true}),/transaction changed/));
+test('rejects confirmation depth loss during final verification',async()=>await assert.rejects(
+ captureReceipt(fixture({finalTip:'0xa'}),H,{confirmations:2}),/confirmations lost/));
