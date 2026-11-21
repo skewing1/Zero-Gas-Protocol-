@@ -20,11 +20,16 @@ export async function checkReceiptConfirmations(rpc, receiptEvidence, minimumCon
   if (latest < blockNumber) throw Error('Receipt block is above latest block');
   const confirmations = latest - blockNumber + 1n;
   if (confirmations < BigInt(minimumConfirmations)) throw Error('Insufficient confirmations');
-  const block = await rpc('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
-  if (!block || hash(block.hash) !== expectedHash || quantity(block.number, 'canonical block number') !== blockNumber) throw Error('Canonical block changed');
+  const assertCanonical = async () => {
+    const block = await rpc('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+    if (!block || hash(block.hash) !== expectedHash || quantity(block.number, 'canonical block number') !== blockNumber) throw Error('Canonical block changed');
+  };
+  await assertCanonical();
   // A second tip read detects a retreat/reorg during the asynchronous canonicality check.
   const latestAfter = quantity(await rpc('eth_blockNumber', []), 'latest block after check');
   if (latestAfter < latest) throw Error('Chain tip retreated during confirmation check');
   if (latestAfter < blockNumber || latestAfter - blockNumber + 1n < BigInt(minimumConfirmations)) throw Error('Insufficient confirmations after check');
+  // Recheck after the tip read to detect a same-height reorg between RPC calls.
+  await assertCanonical();
   return {confirmations: confirmations.toString(), canonicalAtCheck: true, consensusAuthenticated: false, verifiedAllIn: false};
 }
