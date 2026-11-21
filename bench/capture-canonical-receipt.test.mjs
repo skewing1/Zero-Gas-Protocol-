@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {captureReceipt} from './capture-canonical-receipt.mjs';
 const H='0x'+'ab'.repeat(32), B='0x'+'cd'.repeat(32);
 function fixture(overrides={}){
- const receipt={transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',...overrides.receipt};
- const tx={hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',...overrides.tx};
- const block={hash:B,number:'0xa',...overrides.block};
+ const receipt={transactionHash:H,status:'0x1',blockHash:B,blockNumber:'0xa',gasUsed:'0x5208',effectiveGasPrice:'0x2',type:'0x4',transactionIndex:'0x0',...overrides.receipt};
+ const tx={hash:H,blockHash:B,blockNumber:'0xa',type:'0x4',chainId:'0x2105',transactionIndex:'0x0',...overrides.tx};
+ const block={hash:B,number:'0xa',transactions:[{hash:H}],...overrides.block};
  let chainCalls=0,blockCalls=0;
  return async(method)=>{
   if(method==='eth_chainId'){chainCalls++;return chainCalls>1&&overrides.finalChain!==undefined?overrides.finalChain:'0x2105';}
@@ -31,3 +31,16 @@ test('rejects failed receipt',async()=>await assert.rejects(captureReceipt(fixtu
 test('rejects missing receipt',async()=>await assert.rejects(captureReceipt(fixture({noReceipt:true}),H),/missing receipt/));
 test('rejects mismatched chain',async()=>await assert.rejects(captureReceipt(fixture(),H,{expectedChainId:1}),/unexpected chainId/));
 test('rejects noncanonical block',async()=>await assert.rejects(captureReceipt(fixture({block:{hash:'0x'+'ee'.repeat(32)}}),H),/noncanonical/));
+
+test('rejects receipt and transaction index mismatch',async()=>await assert.rejects(
+ captureReceipt(fixture({tx:{transactionIndex:'0x1'}}),H),/index mismatch/));
+test('rejects receipt index absent from canonical block',async()=>await assert.rejects(
+ captureReceipt(fixture({block:{transactions:[]}}),H),/missing block transaction/));
+test('rejects unrelated transaction at claimed canonical index',async()=>await assert.rejects(
+ captureReceipt(fixture({block:{transactions:[{hash:'0x'+'ee'.repeat(32)}]}}),H),/index\/hash mismatch/));
+test('rejects index membership change during confirmation',async()=>await assert.rejects(
+ captureReceipt(fixture({finalBlock:{hash:B,number:'0xa',transactions:[{hash:'0x'+'ee'.repeat(32)}]}}),H),/inclusion changed/));
+test('includes canonical transaction index in read-only evidence',async()=>{
+ const result=await captureReceipt(fixture(),H,{requireType4:true});
+ assert.equal(result.transactionIndex,'0');
+});
