@@ -24,12 +24,20 @@ export async function inspectMinedReceipt(rpc, txHash, expectedChainId) {
   if (!canonical || hash(canonical.hash, 'canonical block hash') !== blockHash) throw Error('Receipt block is not canonical');
   const tx = await rpc('eth_getTransactionByHash', [txid]);
   if (!tx || hash(tx.hash, 'transaction hash') !== txid || hash(tx.blockHash, 'transaction block hash') !== blockHash) throw Error('Transaction inclusion mismatch');
+  // Do not classify a legacy or type-2 transaction as EIP-7702 using only one RPC field.
+  const receiptType = hex(receipt.type, 'receipt transaction type');
+  const txType = hex(tx.type, 'transaction type');
+  if (receiptType !== txType) throw Error('Transaction type mismatch');
+  if (receiptType !== 4n) throw Error('Expected EIP-7702 type-4 transaction');
+  if (hash(tx.blockHash, 'transaction block hash') !== blockHash ||
+      hex(tx.blockNumber, 'transaction block number') !== number) throw Error('Transaction block mismatch');
+  if (hex(tx.chainId, 'transaction chain ID') !== chainId) throw Error('Transaction chain ID mismatch');
   const gasUsed = hex(receipt.gasUsed, 'gasUsed');
   const effectiveGasPrice = hex(receipt.effectiveGasPrice, 'effectiveGasPrice');
   if (gasUsed === 0n) throw Error('Zero gas receipt');
   return {
     chainId: chainId.toString(), transactionHash: txid, blockHash, blockNumber: number.toString(),
-    transactionType: hex(receipt.type ?? tx.type, 'transaction type').toString(),
+    transactionType: receiptType.toString(),
     status: 'success', gasUsed: gasUsed.toString(), effectiveGasPriceWei: effectiveGasPrice.toString(),
     executionFeeWei: (gasUsed * effectiveGasPrice).toString(),
     // RPC inclusion is not independent chain consensus verification. No L1 data, blob,
@@ -44,7 +52,7 @@ export function localRpc(endpoint) {
   }
   let id = 0;
   return async (method, params) => {
-    const response = await fetch(url, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:++id,method,params})});
+    const response = await fetch(url, {redirect:'error',method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:++id,method,params})});
     if (!response.ok) throw Error('RPC HTTP ' + response.status);
     const body = await response.json();
     if (body.error || !('result' in body)) throw Error('RPC error for ' + method);
