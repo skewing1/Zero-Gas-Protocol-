@@ -36,5 +36,11 @@ export async function checkReceiptConfirmations(rpc, receiptEvidence, minimumCon
   if (latestAfter < blockNumber || latestAfter - blockNumber + 1n < BigInt(minimumConfirmations)) throw Error('Insufficient confirmations after check');
   // Recheck after the tip read to detect a same-height reorg between RPC calls.
   await assertCanonical();
+  // Chain identity can change between RPC reads (e.g. a local endpoint is repointed).
+  // Recheck after all canonicality observations, not only before them.
+  if (expectedChainId !== null) {
+    const finalChainId = quantity(await rpc('eth_chainId', []), 'RPC chain ID after check');
+    if (finalChainId !== BigInt(expectedChainId)) throw Error('RPC chain ID changed during confirmation check');
+  }
   return {confirmations: confirmations.toString(), canonicalAtCheck: true, consensusAuthenticated: false, verifiedAllIn: false};
 }
