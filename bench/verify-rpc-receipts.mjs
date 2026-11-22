@@ -56,9 +56,16 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
     const canonical = await request('eth_getBlockByNumber', [r.blockNumber, false]);
     if (!canonical || !same(canonical.hash, r.blockHash) || hex(canonical.number, 'canonical.number') !== height)
       throw new Error('Receipt block is not canonical at verification time');
+    // Confirm the receipt's indexed transaction is actually in the canonical block.
+    // Block-by-number with fullTransactions=false must return transaction hashes.
+    const position = hex(r.transactionIndex, 'receipt.transactionIndex');
+    if (!Array.isArray(canonical.transactions) || position >= BigInt(canonical.transactions.length) ||
+        !same(canonical.transactions[Number(position)], id))
+      throw new Error('Receipt transaction not present at canonical block index');
     const tx = await request('eth_getTransactionByHash', [id]);
     if (!tx || !same(tx.hash, id) || !same(tx.blockHash, r.blockHash) ||
-        hex(tx.blockNumber, 'transaction.blockNumber') !== height)
+        hex(tx.blockNumber, 'transaction.blockNumber') !== height ||
+        hex(tx.transactionIndex, 'transaction.transactionIndex') !== position)
       throw new Error('Transaction inclusion mismatch');
     if (requireEip7702) {
       if (hex(tx.type, 'transaction.type') !== 4n ||
