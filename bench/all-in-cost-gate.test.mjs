@@ -59,3 +59,19 @@ test('cross-chain comparison requires independent settlement verification',()=>{
   b.receipts[0].transactionHash=a.receipts[0].transactionHash;
   assert.throws(()=>compareEquivalent(a,b),/Cross-chain outcomes/);
 });
+
+test('raw JSON-RPC hex gas quantities are priced exactly',()=>{
+  const a=path(100), b=path(40);
+  a.receipts[0].gasUsed='0x64'; a.receipts[0].effectiveGasPriceWei='0x02';
+  b.receipts[0].gasUsed='0x28'; b.receipts[0].effectiveGasPriceWei='0x2';
+  const result=compareEquivalent(a,b);
+  assert.equal(result.baseline.executionWei,'200');
+  assert.equal(result.candidate.executionWei,'80');
+  assert.equal(result.savingsBasisPoints,'6000');
+});
+test('malformed JSON-RPC hex quantities fail closed',()=>{
+  for (const invalid of ['0x','0x00','0xzz','-0x1','0x 2']) {
+    const a=path(100); a.receipts[0].gasUsed=invalid;
+    assert.throws(()=>accountPath(a),/gasUsed/);
+  }
+});
