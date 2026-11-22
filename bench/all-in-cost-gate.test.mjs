@@ -94,3 +94,9 @@ test('matching dual gas-price fields are accepted',()=>{
   a.receipts[0].effectiveGasPrice='0x1';
   assert.equal(accountPath(a).executionWei,'100');
 });
+
+test('zero-value recipient outcome cannot qualify as a payment', () => {
+  const zero = [{recipient, asset:'native', deltaWei:'0'}];
+  assert.throws(() => accountPath(path(100, {outcome:zero})), /Zero-value recipient outcome/);
+  assert.throws(() => compareEquivalent(path(100, {outcome:zero}), path(40, {outcome:zero})), /Zero-value recipient outcome/);
+});
