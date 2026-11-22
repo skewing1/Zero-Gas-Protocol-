@@ -75,3 +75,22 @@ test('malformed JSON-RPC hex quantities fail closed',()=>{
     assert.throws(()=>accountPath(a),/gasUsed/);
   }
 });
+
+test('raw RPC effectiveGasPrice is accepted without normalized alias',()=>{
+  const a=path(100), b=path(40);
+  for (const p of [a,b]) {
+    p.receipts[0].effectiveGasPrice='0x2';
+    delete p.receipts[0].effectiveGasPriceWei;
+  }
+  assert.equal(compareEquivalent(a,b).savingsBasisPoints,'6000');
+});
+test('conflicting RPC and normalized gas prices fail closed',()=>{
+  const a=path(100);
+  a.receipts[0].effectiveGasPrice='0x2';
+  assert.throws(()=>accountPath(a),/Conflicting effectiveGasPrice/);
+});
+test('matching dual gas-price fields are accepted',()=>{
+  const a=path(100);
+  a.receipts[0].effectiveGasPrice='0x1';
+  assert.equal(accountPath(a).executionWei,'100');
+});

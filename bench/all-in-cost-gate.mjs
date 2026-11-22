@@ -46,7 +46,13 @@ export function accountPath(path) {
     if (r.status !== '0x1' || !/^0x[0-9a-fA-F]{64}$/.test(r.transactionHash || ''))
       throw new Error('Missing successful transaction receipt at ' + i);
     const gas = receiptQuantity(r.gasUsed, 'gasUsed');
-    const price = receiptQuantity(r.effectiveGasPriceWei, 'effectiveGasPriceWei');
+    // Raw eth_getTransactionReceipt uses effectiveGasPrice; normalized fixtures use effectiveGasPriceWei.
+    // Refuse conflicting representations rather than choosing an arbitrary one.
+    if (r.effectiveGasPrice !== undefined && r.effectiveGasPriceWei !== undefined &&
+        receiptQuantity(r.effectiveGasPrice, 'effectiveGasPrice') !== receiptQuantity(r.effectiveGasPriceWei, 'effectiveGasPriceWei'))
+      throw new Error('Conflicting effectiveGasPrice fields');
+    const priceField = r.effectiveGasPrice !== undefined ? 'effectiveGasPrice' : 'effectiveGasPriceWei';
+    const price = receiptQuantity(r[priceField], priceField);
     return gas * price;
   }));
   // L2 data charges must be explicit even when zero; never silently default missing to zero.
