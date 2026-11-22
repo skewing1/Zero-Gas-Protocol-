@@ -29,6 +29,8 @@ export function accountPath(path) {
   if (!Number.isSafeInteger(path.obligations) || path.obligations < 1)
     throw new Error('Invalid obligation count');
   const seenReceipts = new Set();
+  const chainId = wei(path.chainId, 'chainId');
+  if (chainId === 0n) throw new Error('chainId must be positive');
   const execution = add(path.receipts.map((r, i) => {
     const receiptId = r?.transactionHash?.toLowerCase();
     if (typeof receiptId !== 'string' || !/^0x[0-9a-f]{64}$/.test(receiptId))
@@ -46,7 +48,7 @@ export function accountPath(path) {
   const categories = ['relayerFeeWei', 'authorizationFeeWei', 'deploymentFeeWei', 'settlementFeeWei', 'otherFeeWei'];
   const extras = Object.fromEntries(categories.map(k => [k, wei(path[k], k)]));
   const total = execution + data + add(Object.values(extras));
-  return { obligations: path.obligations, outcome: normalizeOutcome(path.outcome),
+  return { chainId: chainId.toString(), obligations: path.obligations, outcome: normalizeOutcome(path.outcome),
     executionWei: execution.toString(), dataWei: data.toString(),
     ...Object.fromEntries(Object.entries(extras).map(([k, v]) => [k, v.toString()])),
     totalWei: total.toString(), perObligationFloorWei: (total / BigInt(path.obligations)).toString() };
@@ -54,7 +56,7 @@ export function accountPath(path) {
 export function compareEquivalent(baseline, candidate) {
   const a = accountPath(baseline), b = accountPath(candidate);
   const baselineHashes = new Set(baseline.receipts.map(r => r.transactionHash.toLowerCase()));
-  if (candidate.receipts.some(r => baselineHashes.has(r.transactionHash.toLowerCase())))
+  if (a.chainId === b.chainId && candidate.receipts.some(r => baselineHashes.has(r.transactionHash.toLowerCase())))
     throw new Error('Baseline and candidate reuse the same transaction receipt');
   if (a.obligations !== b.obligations || JSON.stringify(a.outcome) !== JSON.stringify(b.outcome))
     throw new Error('Non-equivalent recipient outcomes or obligation counts');
