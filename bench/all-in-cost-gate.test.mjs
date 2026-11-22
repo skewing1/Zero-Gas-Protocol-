@@ -54,8 +54,8 @@ test('chain ID is mandatory and nonzero',()=>{
   assert.throws(()=>accountPath(a),/chainId/);
   assert.throws(()=>accountPath(path(100,{chainId:'0'})),/chainId/);
 });
-test('identical hash on different chains is not duplicate transaction identity',()=>{
+test('cross-chain comparison requires independent settlement verification',()=>{
   const a=path(100), b=path(40,{chainId:'31338'});
   b.receipts[0].transactionHash=a.receipts[0].transactionHash;
-  assert.equal(compareEquivalent(a,b).savingsBasisPoints,'6000');
+  assert.throws(()=>compareEquivalent(a,b),/Cross-chain outcomes/);
 });
