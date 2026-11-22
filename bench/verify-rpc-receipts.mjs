@@ -78,5 +78,17 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
     }
     verified.push({...r, verifiedChainId: chainId, confirmations: (tip-height+1n).toString()});
   }
+  // Recheck after sequential RPC calls to reject a mid-verification reorganization.
+  const finalTip = hex(await request('eth_blockNumber', []), 'final.blockNumber');
+  for (const receipt of verified) {
+    const height = hex(receipt.blockNumber, 'receipt.blockNumber');
+    if (height > finalTip || finalTip - height + 1n < BigInt(minConfirmations))
+      throw new Error('Receipt lost confirmations during verification');
+    const block = await request('eth_getBlockByNumber', [receipt.blockNumber, false]);
+    if (!block || !same(block.hash, receipt.blockHash) ||
+        hex(block.number, 'final.canonical.number') !== height)
+      throw new Error('Receipt block reorganized during verification');
+    receipt.confirmations = (finalTip - height + 1n).toString();
+  }
   return verified;
 }
