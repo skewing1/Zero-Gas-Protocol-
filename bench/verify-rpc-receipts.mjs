@@ -90,5 +90,8 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
       throw new Error('Receipt block reorganized during verification');
     receipt.confirmations = (finalTip - height + 1n).toString();
   }
+  // Detect a provider/network switch during multi-request evidence collection.
+  const finalChain = hex(await request('eth_chainId', []), 'final.chainId');
+  if (finalChain !== BigInt(chainId)) throw new Error('RPC chain changed during verification');
   return verified;
 }
