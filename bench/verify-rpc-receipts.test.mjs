@@ -114,3 +114,27 @@ test('reject type-4 transaction without explicit execution chainId',async()=>{
   delete f.eth_getTransactionByHash.chainId;
   await assert.rejects(run(f,{requireEip7702:true}),/Invalid RPC quantity: transaction.chainId/);
 });
+
+test('reject reorganization occurring between initial and final block checks', async () => {
+  const f = fixture();
+  let reads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request:async (method) => {
+      if (method === 'eth_getBlockByNumber' && ++reads === 2)
+        return {...f.eth_getBlockByNumber,hash:'0x'+'c'.repeat(64)};
+      return f[method];
+    }
+  }), /reorganized during verification/);
+});
+test('reject confirmation loss occurring during verification', async () => {
+  const f = fixture();
+  let reads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request:async (method) => {
+      if (method === 'eth_blockNumber' && ++reads === 2) return '0x10';
+      return f[method];
+    }
+  }), /lost confirmations during verification/);
+});
