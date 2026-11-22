@@ -4,6 +4,12 @@ const wei = (value, field) => {
     throw new Error(field + ' must be an unsigned decimal wei string');
   return BigInt(value);
 };
+// Ethereum JSON-RPC receipt quantities are hex; existing normalized fixtures use decimal.
+const receiptQuantity = (value, field) => {
+  if (typeof value !== 'string') throw new Error(field + ' must be a string quantity');
+  if (/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(value)) return BigInt(value);
+  return wei(value, field);
+};
 const add = (items) => items.reduce((a, b) => a + b, 0n);
 const address = (value) => {
   if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(value))
@@ -39,8 +45,8 @@ export function accountPath(path) {
     seenReceipts.add(receiptId);
     if (r.status !== '0x1' || !/^0x[0-9a-fA-F]{64}$/.test(r.transactionHash || ''))
       throw new Error('Missing successful transaction receipt at ' + i);
-    const gas = wei(r.gasUsed, 'gasUsed');
-    const price = wei(r.effectiveGasPriceWei, 'effectiveGasPriceWei');
+    const gas = receiptQuantity(r.gasUsed, 'gasUsed');
+    const price = receiptQuantity(r.effectiveGasPriceWei, 'effectiveGasPriceWei');
     return gas * price;
   }));
   // L2 data charges must be explicit even when zero; never silently default missing to zero.
