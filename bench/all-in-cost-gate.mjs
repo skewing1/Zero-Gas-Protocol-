@@ -28,7 +28,15 @@ export function accountPath(path) {
     throw new Error('Missing actual receipts');
   if (!Number.isSafeInteger(path.obligations) || path.obligations < 1)
     throw new Error('Invalid obligation count');
+  const seenReceipts = new Set();
+  const chainId = wei(path.chainId, 'chainId');
+  if (chainId === 0n) throw new Error('chainId must be positive');
   const execution = add(path.receipts.map((r, i) => {
+    const receiptId = r?.transactionHash?.toLowerCase();
+    if (typeof receiptId !== 'string' || !/^0x[0-9a-f]{64}$/.test(receiptId))
+      throw new Error('Invalid transaction hash at ' + i);
+    if (seenReceipts.has(receiptId)) throw new Error('Duplicate transaction receipt within payment path');
+    seenReceipts.add(receiptId);
     if (r.status !== '0x1' || !/^0x[0-9a-fA-F]{64}$/.test(r.transactionHash || ''))
       throw new Error('Missing successful transaction receipt at ' + i);
     const gas = wei(r.gasUsed, 'gasUsed');
@@ -40,13 +48,17 @@ export function accountPath(path) {
   const categories = ['relayerFeeWei', 'authorizationFeeWei', 'deploymentFeeWei', 'settlementFeeWei', 'otherFeeWei'];
   const extras = Object.fromEntries(categories.map(k => [k, wei(path[k], k)]));
   const total = execution + data + add(Object.values(extras));
-  return { obligations: path.obligations, outcome: normalizeOutcome(path.outcome),
+  return { chainId: chainId.toString(), obligations: path.obligations, outcome: normalizeOutcome(path.outcome),
     executionWei: execution.toString(), dataWei: data.toString(),
     ...Object.fromEntries(Object.entries(extras).map(([k, v]) => [k, v.toString()])),
     totalWei: total.toString(), perObligationFloorWei: (total / BigInt(path.obligations)).toString() };
 }
 export function compareEquivalent(baseline, candidate) {
   const a = accountPath(baseline), b = accountPath(candidate);
+  const baselineHashes = new Set(baseline.receipts.map(r => r.transactionHash.toLowerCase()));
+  if (a.chainId === b.chainId && candidate.receipts.some(r => baselineHashes.has(r.transactionHash.toLowerCase())))
+    throw new Error('Baseline and candidate reuse the same transaction receipt');
+  if (a.chainId !== b.chainId) throw new Error('Cross-chain outcomes require independently verified settlement equivalence');
   if (a.obligations !== b.obligations || JSON.stringify(a.outcome) !== JSON.stringify(b.outcome))
     throw new Error('Non-equivalent recipient outcomes or obligation counts');
   const base = BigInt(a.totalWei), test = BigInt(b.totalWei);
