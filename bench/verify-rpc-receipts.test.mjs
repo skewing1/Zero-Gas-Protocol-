@@ -138,3 +138,15 @@ test('reject confirmation loss occurring during verification', async () => {
     }
   }), /lost confirmations during verification/);
 });
+
+test('reject RPC chain switch after finality checks', async () => {
+  const f = fixture();
+  let chainReads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request:async (method) => {
+      if (method === 'eth_chainId' && ++chainReads === 2) return '0x2105';
+      return f[method];
+    }
+  }), /RPC chain changed during verification/);
+});
