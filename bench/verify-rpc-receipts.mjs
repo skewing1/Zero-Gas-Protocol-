@@ -6,6 +6,24 @@ const hex = (v, field) => {
 };
 const hash = (v) => typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+
+// Structural evidence only: signature recovery and delegation state are NOT verified here.
+const validateAuthorization = (auth, expectedChain) => {
+  if (!auth || typeof auth !== 'object' || Array.isArray(auth))
+    throw new Error('Invalid EIP-7702 authorization tuple');
+  const authChain = hex(auth.chainId, 'authorization.chainId');
+  if (authChain !== 0n && authChain !== expectedChain)
+    throw new Error('EIP-7702 authorization chain mismatch');
+  if (typeof auth.address !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(auth.address))
+    throw new Error('Invalid EIP-7702 authorization delegate address');
+  hex(auth.nonce, 'authorization.nonce');
+  const parity = hex(auth.yParity, 'authorization.yParity');
+  if (parity !== 0n && parity !== 1n) throw new Error('Invalid EIP-7702 yParity');
+  const r = hex(auth.r, 'authorization.r'), sigS = hex(auth.s, 'authorization.s');
+  const curveN = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+  if (r === 0n || r >= curveN || sigS === 0n || sigS > curveN / 2n)
+    throw new Error('Invalid EIP-7702 signature scalar');
+};
 export async function verifyMinedReceipts({ request, chainId, transactionHashes, minConfirmations = 12, requireEip7702 = false }) {
   if (typeof requireEip7702 !== 'boolean') throw new Error('requireEip7702 must be boolean');
   if (typeof request !== 'function') throw new Error('RPC request function required');
@@ -46,6 +64,7 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
       if (hex(tx.type, 'transaction.type') !== 4n ||
           !Array.isArray(tx.authorizationList) || tx.authorizationList.length === 0)
         throw new Error('Expected mined EIP-7702 type-4 transaction with authorization list');
+      for (const authorization of tx.authorizationList) validateAuthorization(authorization, BigInt(chainId));
       if (r.type !== undefined && hex(r.type, 'receipt.type') !== 4n)
         throw new Error('Receipt and transaction type mismatch');
     }
