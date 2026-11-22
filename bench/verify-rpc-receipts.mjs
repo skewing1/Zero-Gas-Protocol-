@@ -69,6 +69,7 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
       throw new Error('Transaction inclusion mismatch');
     if (requireEip7702) {
       if (hex(tx.type, 'transaction.type') !== 4n ||
+          hex(tx.chainId, 'transaction.chainId') !== BigInt(chainId) ||
           !Array.isArray(tx.authorizationList) || tx.authorizationList.length === 0)
         throw new Error('Expected mined EIP-7702 type-4 transaction with authorization list');
       for (const authorization of tx.authorizationList) validateAuthorization(authorization, BigInt(chainId));
