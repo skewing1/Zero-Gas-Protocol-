@@ -58,6 +58,7 @@ export function compareEquivalent(baseline, candidate) {
   const baselineHashes = new Set(baseline.receipts.map(r => r.transactionHash.toLowerCase()));
   if (a.chainId === b.chainId && candidate.receipts.some(r => baselineHashes.has(r.transactionHash.toLowerCase())))
     throw new Error('Baseline and candidate reuse the same transaction receipt');
+  if (a.chainId !== b.chainId) throw new Error('Cross-chain outcomes require independently verified settlement equivalence');
   if (a.obligations !== b.obligations || JSON.stringify(a.outcome) !== JSON.stringify(b.outcome))
     throw new Error('Non-equivalent recipient outcomes or obligation counts');
   const base = BigInt(a.totalWei), test = BigInt(b.totalWei);
