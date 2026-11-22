@@ -6,7 +6,7 @@ const recipient = '0x' + '1'.repeat(40);
 const outcome = [{recipient, asset:'native', deltaWei:'100'}];
 let nextHash = 1n;
 const path = (gas, overrides={}) => ({
-  obligations: 1, outcome, receipts:[{transactionHash:'0x'+(nextHash++).toString(16).padStart(64,'0'),status:'0x1',gasUsed:String(gas),
+  chainId:'31337', obligations: 1, outcome, receipts:[{transactionHash:'0x'+(nextHash++).toString(16).padStart(64,'0'),status:'0x1',gasUsed:String(gas),
     effectiveGasPriceWei:'1',dataFeeWei:'0'}],
   relayerFeeWei:'0',authorizationFeeWei:'0',deploymentFeeWei:'0',
   settlementFeeWei:'0',otherFeeWei:'0',...overrides
@@ -47,4 +47,15 @@ test('duplicate receipt within a path is rejected',()=>{
   const a=path(100);
   a.receipts.push({...a.receipts[0],transactionHash:a.receipts[0].transactionHash.toUpperCase().replace('0X','0x')});
   assert.throws(()=>accountPath(a),/Duplicate transaction receipt/);
+});
+
+test('chain ID is mandatory and nonzero',()=>{
+  const a=path(100); delete a.chainId;
+  assert.throws(()=>accountPath(a),/chainId/);
+  assert.throws(()=>accountPath(path(100,{chainId:'0'})),/chainId/);
+});
+test('identical hash on different chains is not duplicate transaction identity',()=>{
+  const a=path(100), b=path(40,{chainId:'31338'});
+  b.receipts[0].transactionHash=a.receipts[0].transactionHash;
+  assert.equal(compareEquivalent(a,b).savingsBasisPoints,'6000');
 });
