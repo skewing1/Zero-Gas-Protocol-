@@ -150,3 +150,27 @@ test('reject RPC chain switch after finality checks', async () => {
     }
   }), /RPC chain changed during verification/);
 });
+
+test('reject receipt execution gas changing during final verification', async () => {
+  const f = fixture();
+  let receiptReads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request:async (method) => {
+      if (method === 'eth_getTransactionReceipt' && ++receiptReads === 2)
+        return {...f.eth_getTransactionReceipt,gasUsed:'0x5209'};
+      return f[method];
+    }
+  }), /Receipt changed during final verification/);
+});
+test('reject receipt disappearing during final verification', async () => {
+  const f = fixture();
+  let receiptReads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request:async (method) => {
+      if (method === 'eth_getTransactionReceipt' && ++receiptReads === 2) return null;
+      return f[method];
+    }
+  }), /Receipt changed during final verification/);
+});

@@ -88,6 +88,21 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
     if (!block || !same(block.hash, receipt.blockHash) ||
         hex(block.number, 'final.canonical.number') !== height)
       throw new Error('Receipt block reorganized during verification');
+    // Re-read receipt after canonicality checks: do not accept evidence whose
+    // inclusion, status, or billed execution cost changed during verification.
+    const finalReceipt = await request('eth_getTransactionReceipt', [receipt.transactionHash]);
+    if (!finalReceipt || !same(finalReceipt.transactionHash, receipt.transactionHash) ||
+        finalReceipt.status !== receipt.status ||
+        !same(finalReceipt.blockHash, receipt.blockHash) ||
+        hex(finalReceipt.blockNumber, 'final.receipt.blockNumber') !== height ||
+        hex(finalReceipt.transactionIndex, 'final.receipt.transactionIndex') !==
+          hex(receipt.transactionIndex, 'receipt.transactionIndex') ||
+        hex(finalReceipt.gasUsed, 'final.receipt.gasUsed') !==
+          hex(receipt.gasUsed, 'receipt.gasUsed') ||
+        hex(finalReceipt.effectiveGasPrice, 'final.receipt.effectiveGasPrice') !==
+          hex(receipt.effectiveGasPrice, 'receipt.effectiveGasPrice') ||
+        (requireEip7702 && hex(finalReceipt.type, 'final.receipt.type') !== 4n))
+      throw new Error('Receipt changed during final verification');
     receipt.confirmations = (finalTip - height + 1n).toString();
   }
   // Detect a provider/network switch during multi-request evidence collection.
