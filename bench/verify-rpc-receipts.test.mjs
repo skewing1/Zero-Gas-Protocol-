@@ -38,3 +38,24 @@ test('reject failed receipts and duplicate evidence',async()=>{
   await assert.rejects(run(f),/incomplete mined receipt/);
   await assert.rejects(run(fixture(),{transactionHashes:[id,id]}),/Duplicate/);
 });
+
+test('require EIP-7702 rejects legacy transaction',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x2';
+  await assert.rejects(run(f,{requireEip7702:true}),/Expected mined EIP-7702/);
+});
+test('require EIP-7702 rejects missing authorization list',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  await assert.rejects(run(f,{requireEip7702:true}),/Expected mined EIP-7702/);
+});
+test('require EIP-7702 accepts matching type-4 evidence',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[{chainId:'0x1'}];
+  f.eth_getTransactionReceipt.type='0x4';
+  assert.equal((await run(f,{requireEip7702:true}))[0].verifiedChainId,'1');
+});
+test('require EIP-7702 rejects conflicting receipt type',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[{chainId:'0x1'}];
+  f.eth_getTransactionReceipt.type='0x2';
+  await assert.rejects(run(f,{requireEip7702:true}),/type mismatch/);
+});

@@ -6,7 +6,8 @@ const hex = (v, field) => {
 };
 const hash = (v) => typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v);
 const same = (a,b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
-export async function verifyMinedReceipts({ request, chainId, transactionHashes, minConfirmations = 12 }) {
+export async function verifyMinedReceipts({ request, chainId, transactionHashes, minConfirmations = 12, requireEip7702 = false }) {
+  if (typeof requireEip7702 !== 'boolean') throw new Error('requireEip7702 must be boolean');
   if (typeof request !== 'function') throw new Error('RPC request function required');
   if (typeof chainId !== 'string' || !/^[1-9][0-9]*$/.test(chainId))
     throw new Error('Expected decimal chainId required');
@@ -41,6 +42,13 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
     if (!tx || !same(tx.hash, id) || !same(tx.blockHash, r.blockHash) ||
         hex(tx.blockNumber, 'transaction.blockNumber') !== height)
       throw new Error('Transaction inclusion mismatch');
+    if (requireEip7702) {
+      if (hex(tx.type, 'transaction.type') !== 4n ||
+          !Array.isArray(tx.authorizationList) || tx.authorizationList.length === 0)
+        throw new Error('Expected mined EIP-7702 type-4 transaction with authorization list');
+      if (r.type !== undefined && hex(r.type, 'receipt.type') !== 4n)
+        throw new Error('Receipt and transaction type mismatch');
+    }
     verified.push({...r, verifiedChainId: chainId, confirmations: (tip-height+1n).toString()});
   }
   return verified;
