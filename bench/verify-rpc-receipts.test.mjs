@@ -8,6 +8,7 @@ const fixture = () => ({
   eth_getBlockByNumber:{hash:blockHash,number:'0x10'},
   eth_getTransactionByHash:{hash:id,blockHash,blockNumber:'0x10'}
 });
+const auth = (overrides={}) => ({chainId:'0x1',address:'0x'+'1'.repeat(40),nonce:'0x0',yParity:'0x0',r:'0x1',s:'0x1',...overrides});
 const run = (responses, options={}) => verifyMinedReceipts({
   request: async (method) => responses[method], chainId:'1', transactionHashes:[id],
   minConfirmations:12,...options
@@ -49,13 +50,37 @@ test('require EIP-7702 rejects missing authorization list',async()=>{
 });
 test('require EIP-7702 accepts matching type-4 evidence',async()=>{
   const f=fixture(); f.eth_getTransactionByHash.type='0x4';
-  f.eth_getTransactionByHash.authorizationList=[{chainId:'0x1'}];
+  f.eth_getTransactionByHash.authorizationList=[auth()];
   f.eth_getTransactionReceipt.type='0x4';
   assert.equal((await run(f,{requireEip7702:true}))[0].verifiedChainId,'1');
 });
 test('require EIP-7702 rejects conflicting receipt type',async()=>{
   const f=fixture(); f.eth_getTransactionByHash.type='0x4';
-  f.eth_getTransactionByHash.authorizationList=[{chainId:'0x1'}];
+  f.eth_getTransactionByHash.authorizationList=[auth()];
   f.eth_getTransactionReceipt.type='0x2';
   await assert.rejects(run(f,{requireEip7702:true}),/type mismatch/);
+});
+
+test('reject authorization for another chain',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[auth({chainId:'0x2105'})];
+  await assert.rejects(run(f,{requireEip7702:true}),/authorization chain mismatch/);
+});
+test('reject incomplete authorization tuple',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[{chainId:'0x1'}];
+  await assert.rejects(run(f,{requireEip7702:true}),/delegate address/);
+});
+test('reject invalid parity and zero signature scalar',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[auth({yParity:'0x2'})];
+  await assert.rejects(run(f,{requireEip7702:true}),/yParity/);
+  f.eth_getTransactionByHash.authorizationList=[auth({r:'0x0'})];
+  await assert.rejects(run(f,{requireEip7702:true}),/signature scalar/);
+});
+test('allow chain-agnostic EIP-7702 authorization chainId zero',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[auth({chainId:'0x0'})];
+  f.eth_getTransactionReceipt.type='0x4';
+  assert.equal((await run(f,{requireEip7702:true}))[0].verifiedChainId,'1');
 });
