@@ -62,7 +62,7 @@ test('cross-chain comparison requires independent settlement verification',()=>{
 
 test('raw JSON-RPC hex gas quantities are priced exactly',()=>{
   const a=path(100), b=path(40);
-  a.receipts[0].gasUsed='0x64'; a.receipts[0].effectiveGasPriceWei='0x02';
+  a.receipts[0].gasUsed='0x64'; a.receipts[0].effectiveGasPriceWei='0x2';
   b.receipts[0].gasUsed='0x28'; b.receipts[0].effectiveGasPriceWei='0x2';
   const result=compareEquivalent(a,b);
   assert.equal(result.baseline.executionWei,'200');
