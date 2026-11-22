@@ -6,7 +6,7 @@ const fixture = () => ({
   eth_chainId:'0x1', eth_blockNumber:'0x20',
   eth_getTransactionReceipt:{transactionHash:id,status:'0x1',blockHash,blockNumber:'0x10',gasUsed:'0x5208',effectiveGasPrice:'0x2',transactionIndex:'0x0'},
   eth_getBlockByNumber:{hash:blockHash,number:'0x10',transactions:[id]},
-  eth_getTransactionByHash:{hash:id,blockHash,blockNumber:'0x10',transactionIndex:'0x0'}
+  eth_getTransactionByHash:{hash:id,blockHash,blockNumber:'0x10',transactionIndex:'0x0',chainId:'0x1'}
 });
 const auth = (overrides={}) => ({chainId:'0x1',address:'0x'+'1'.repeat(40),nonce:'0x0',yParity:'0x0',r:'0x1',s:'0x1',...overrides});
 const run = (responses, options={}) => verifyMinedReceipts({
@@ -100,4 +100,17 @@ test('reject transaction index inconsistent with receipt',async()=>{
 test('reject missing canonical block transaction list',async()=>{
   const f=fixture(); delete f.eth_getBlockByNumber.transactions;
   await assert.rejects(run(f),/not present at canonical block index/);
+});
+
+test('reject type-4 transaction on a different execution chain',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[auth()];
+  f.eth_getTransactionByHash.chainId='0xa4b1';
+  await assert.rejects(run(f,{requireEip7702:true}),/Expected mined EIP-7702/);
+});
+test('reject type-4 transaction without explicit execution chainId',async()=>{
+  const f=fixture(); f.eth_getTransactionByHash.type='0x4';
+  f.eth_getTransactionByHash.authorizationList=[auth()];
+  delete f.eth_getTransactionByHash.chainId;
+  await assert.rejects(run(f,{requireEip7702:true}),/Invalid RPC quantity: transaction.chainId/);
 });
