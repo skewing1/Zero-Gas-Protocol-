@@ -26,7 +26,9 @@ export function normalizeOutcome(outcome) {
     const key = to + ':' + asset.toLowerCase();
     if (seen.has(key)) throw new Error('Duplicate recipient and asset');
     seen.add(key);
-    return [key, wei(deltaWei, 'deltaWei').toString()];
+    const delta = wei(deltaWei, 'deltaWei');
+    if (delta === 0n) throw new Error('Zero-value recipient outcome is not a payment');
+    return [key, delta.toString()];
   }).sort((a, b) => a[0].localeCompare(b[0]));
 }
 export function accountPath(path) {
