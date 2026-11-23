@@ -174,3 +174,35 @@ test('reject receipt disappearing during final verification', async () => {
     }
   }), /Receipt changed during final verification/);
 });
+
+test('reject Base l1Fee drift during final receipt recheck', async () => {
+  const f = fixture(); f.eth_getTransactionReceipt.l1Fee = '0x10';
+  let reads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request: async (method) => method === 'eth_getTransactionReceipt' && ++reads === 2
+      ? {...f.eth_getTransactionReceipt, l1Fee:'0x11'} : f[method]
+  }), /Receipt changed during final verification/);
+});
+test('reject Base l1Fee disappearing during final receipt recheck', async () => {
+  const f = fixture(); f.eth_getTransactionReceipt.l1Fee = '0x10';
+  let reads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request: async (method) => method === 'eth_getTransactionReceipt' && ++reads === 2
+      ? {...f.eth_getTransactionReceipt, l1Fee:undefined} : f[method]
+  }), /Receipt changed during final verification/);
+});
+test('reject Arbitrum gasUsedForL1 drift during final receipt recheck', async () => {
+  const f = fixture(); f.eth_getTransactionReceipt.gasUsedForL1 = '0x10';
+  let reads = 0;
+  await assert.rejects(verifyMinedReceipts({
+    chainId:'1', transactionHashes:[id], minConfirmations:12,
+    request: async (method) => method === 'eth_getTransactionReceipt' && ++reads === 2
+      ? {...f.eth_getTransactionReceipt, gasUsedForL1:'0x11'} : f[method]
+  }), /Receipt changed during final verification/);
+});
+test('accept unchanged rollup fee evidence on final receipt recheck', async () => {
+  const f = fixture(); f.eth_getTransactionReceipt.l1Fee = '0x10';
+  assert.equal((await run(f))[0].confirmations, '17');
+});
