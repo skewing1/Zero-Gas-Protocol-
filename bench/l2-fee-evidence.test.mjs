@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeReceiptDataFee as normalize } from './l2-fee-evidence.mjs';
+const receipt = { gasUsed: '0x64', effectiveGasPrice: '0x2' };
+test('Ethereum execution gas only', () => assert.deepEqual(normalize({chainId:'1',receipt}), {executionWei:'200',dataFeeWei:'0',feeModel:'ethereum-execution'}));
+test('Base l1Fee is additional, not hidden', () => assert.deepEqual(normalize({chainId:'8453',receipt:{...receipt,l1Fee:'0x1e'}}), {executionWei:'200',dataFeeWei:'30',feeModel:'base-l1-fee-separate'}));
+test('Arbitrum L1 gas is embedded and must not be double counted', () => assert.deepEqual(normalize({chainId:'42161',receipt:{...receipt,gasUsedForL1:'0x14'}}), {executionWei:'200',dataFeeWei:'0',embeddedL1Wei:'40',feeModel:'arbitrum-l1-embedded'}));
+test('missing L2 evidence fails closed', () => {for(const chainId of ['8453','42161']) assert.throws(()=>normalize({chainId,receipt}), /requires/)});
+test('mixed fee schemas fail closed', () => {for(const chainId of ['8453','42161']) assert.throws(()=>normalize({chainId,receipt:{...receipt,l1Fee:'1',gasUsedForL1:'1'}}),/Conflicting/)});
+test('Arbitrum component cannot exceed total',()=>assert.throws(()=>normalize({chainId:'42161',receipt:{...receipt,gasUsedForL1:'101'}}),/exceeds/));
+test('unsupported chain fails closed',()=>assert.throws(()=>normalize({chainId:'31337',receipt}),/Unsupported/));
+test('reject malformed quantities',()=>{for(const value of ['0x00','-1','1.1','0xzz',1]) assert.throws(()=>normalize({chainId:'1',receipt:{...receipt,gasUsed:value}}),/gasUsed/)});
+test('bigint arithmetic preserves precision',()=>assert.equal(normalize({chainId:'8453',receipt:{gasUsed:'9007199254740993',effectiveGasPrice:'3',l1Fee:'1'}}).executionWei,'27021597764222979'));
