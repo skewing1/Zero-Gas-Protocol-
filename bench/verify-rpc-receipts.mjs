@@ -101,6 +101,13 @@ export async function verifyMinedReceipts({ request, chainId, transactionHashes,
           hex(receipt.gasUsed, 'receipt.gasUsed') ||
         hex(finalReceipt.effectiveGasPrice, 'final.receipt.effectiveGasPrice') !==
           hex(receipt.effectiveGasPrice, 'receipt.effectiveGasPrice') ||
+        // Recheck rollup data-fee evidence, not only execution gas.
+        ((receipt.l1Fee !== undefined || finalReceipt.l1Fee !== undefined) &&
+          (receipt.l1Fee === undefined || finalReceipt.l1Fee === undefined ||
+           hex(finalReceipt.l1Fee, 'final.receipt.l1Fee') !== hex(receipt.l1Fee, 'receipt.l1Fee'))) ||
+        ((receipt.gasUsedForL1 !== undefined || finalReceipt.gasUsedForL1 !== undefined) &&
+          (receipt.gasUsedForL1 === undefined || finalReceipt.gasUsedForL1 === undefined ||
+           hex(finalReceipt.gasUsedForL1, 'final.receipt.gasUsedForL1') !== hex(receipt.gasUsedForL1, 'receipt.gasUsedForL1'))) ||
         (requireEip7702 && hex(finalReceipt.type, 'final.receipt.type') !== 4n))
       throw new Error('Receipt changed during final verification');
     receipt.confirmations = (finalTip - height + 1n).toString();
