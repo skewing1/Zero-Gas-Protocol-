@@ -13,7 +13,11 @@ export async function probeReceipt(rpc, txHash, expectedChainId) {
   if (!block || block.hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || !block.transactions?.some(x => x.toLowerCase() === txHash.toLowerCase())) throw Error('Receipt not in block');
   if (BigInt(receipt.blockNumber) !== BigInt(block.number) || BigInt(tx.blockNumber) !== BigInt(block.number)) throw Error('Block number mismatch');
   if (tx.blockHash?.toLowerCase() !== receipt.blockHash.toLowerCase()) throw Error('Transaction block hash mismatch');
-  if (tx.transactionIndex != null && receipt.transactionIndex != null && BigInt(tx.transactionIndex) !== BigInt(receipt.transactionIndex)) throw Error('Transaction index mismatch');
+  if (tx.transactionIndex == null || receipt.transactionIndex == null) throw Error('Missing transaction index');
+  const index = BigInt(receipt.transactionIndex);
+  if (index < 0n || index >= BigInt(block.transactions.length) ||
+      block.transactions[Number(index)]?.toLowerCase() !== txHash.toLowerCase() ||
+      BigInt(tx.transactionIndex) !== index) throw Error('Transaction index mismatch');
   const gasUsed = BigInt(receipt.gasUsed), gasPrice = BigInt(receipt.effectiveGasPrice);
   if (gasUsed <= 0n || gasPrice <= 0n) throw Error('Missing gas evidence');
   const executionWei = gasUsed * gasPrice;

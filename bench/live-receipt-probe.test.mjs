@@ -22,3 +22,22 @@ test('rejects mismatched transaction block hash',async()=>{const base=fixture();
 test('rejects mismatched transaction index',async()=>{const base=fixture();await assert.rejects(probeReceipt(fixture({eth_getTransactionByHash:{...base('eth_getTransactionByHash'),transactionIndex:'0x1'}}),H,'8453'),/Transaction index mismatch/);});
 test('rejects changed block membership on final observation',async()=>{let n=0;const base=fixture();await assert.rejects(probeReceipt((m)=>m==='eth_getBlockByHash'&&++n===2?{...base(m),transactions:[]}:base(m),H,'8453'),/Block changed/);});
 test('network fees alone never assert full economic cost',async()=>{const r=await probeReceipt(fixture(),H,'8453');assert.equal(r.networkFeeEvidenceComplete,true);assert.equal(r.costComplete,false);});
+
+test('rejects block membership at wrong transaction index',async()=>{
+ const other='0x'+'ef'.repeat(32), base=fixture();
+ const block={...base('eth_getBlockByHash'),transactions:[other,H]};
+ await assert.rejects(probeReceipt(fixture({eth_getBlockByHash:block}),H,'8453'),/Transaction index mismatch/);
+});
+test('rejects absent transaction index evidence',async()=>{
+ const base=fixture(), receipt={...base('eth_getTransactionReceipt')};
+ delete receipt.transactionIndex;
+ await assert.rejects(probeReceipt(fixture({eth_getTransactionReceipt:receipt}),H,'8453'),/Missing transaction index/);
+});
+test('accepts transaction at its actual nonzero block index',async()=>{
+ const other='0x'+'ef'.repeat(32), base=fixture();
+ const tx={...base('eth_getTransactionByHash'),transactionIndex:'0x1'};
+ const receipt={...base('eth_getTransactionReceipt'),transactionIndex:'0x1'};
+ const block={...base('eth_getBlockByHash'),transactions:[other,H]};
+ const result=await probeReceipt(fixture({eth_getTransactionByHash:tx,eth_getTransactionReceipt:receipt,eth_getBlockByHash:block}),H,'8453');
+ assert.equal(result.txHash,H);
+});
