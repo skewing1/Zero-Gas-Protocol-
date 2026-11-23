@@ -76,7 +76,7 @@ test('accepts hex Ethereum chain ID and normalizes its fee completeness',async()
 });
 test('rejects negative L1 fee rather than reducing measured costs',async()=>{
  const base=fixture();
- await assert.rejects(probeReceipt(fixture({eth_getTransactionReceipt:{...base('eth_getTransactionReceipt'),l1Fee:'-0x1'}}),H,'8453'),/Cannot convert|Invalid L1 fee/);
+ await assert.rejects(probeReceipt(fixture({eth_getTransactionReceipt:{...base('eth_getTransactionReceipt'),l1Fee:'-1'}}),H,'8453'),/Invalid L1 fee/);
 });
 test('rejects zero expected chain ID',async()=>{
  await assert.rejects(probeReceipt(fixture(),H,'0'),/Invalid expected chain/);
