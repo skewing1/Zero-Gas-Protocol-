@@ -62,3 +62,22 @@ test('rejects changed unrelated block transaction during final observation',asyn
  const rpc=(m)=>m==='eth_getTransactionByHash'?tx:m==='eth_getTransactionReceipt'?receipt:m==='eth_getBlockByHash'&&++n===2?{...initial,transactions:[changed,H]}:m==='eth_getBlockByHash'?initial:base(m);
  await assert.rejects(probeReceipt(rpc,H,'8453'),/Block changed/);
 });
+
+test('accepts hex Base chain ID and normalizes its fee completeness',async()=>{
+ const r=await probeReceipt(fixture(),H,'0x2105');
+ assert.equal(r.chainId,'8453');
+ assert.equal(r.networkFeeEvidenceComplete,true);
+ assert.equal(r.costComplete,false);
+});
+test('accepts hex Ethereum chain ID and normalizes its fee completeness',async()=>{
+ const r=await probeReceipt(fixture({eth_chainId:'0x1'}),H,'0x1');
+ assert.equal(r.chainId,'1');
+ assert.equal(r.networkFeeEvidenceComplete,true);
+});
+test('rejects negative L1 fee rather than reducing measured costs',async()=>{
+ const base=fixture();
+ await assert.rejects(probeReceipt(fixture({eth_getTransactionReceipt:{...base('eth_getTransactionReceipt'),l1Fee:'-1'}}),H,'8453'),/Invalid L1 fee/);
+});
+test('rejects zero expected chain ID',async()=>{
+ await assert.rejects(probeReceipt(fixture(),H,'0'),/Invalid expected chain/);
+});

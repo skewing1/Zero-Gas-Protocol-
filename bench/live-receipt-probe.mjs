@@ -1,8 +1,10 @@
 // Read-only receipt probe. Never sends transactions. Node >= 20.
 export async function probeReceipt(rpc, txHash, expectedChainId) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw Error('Invalid transaction hash');
+  const canonicalChainId = BigInt(expectedChainId);
+  if (canonicalChainId <= 0n) throw Error('Invalid expected chain');
   const chain = await rpc('eth_chainId', []);
-  if (BigInt(chain) !== BigInt(expectedChainId)) throw Error('Unexpected chain');
+  if (BigInt(chain) !== canonicalChainId) throw Error('Unexpected chain');
   const tx = await rpc('eth_getTransactionByHash', [txHash]);
   const receipt = await rpc('eth_getTransactionReceipt', [txHash]);
   if (!tx || !receipt) throw Error('Unmined or missing transaction');
@@ -22,12 +24,13 @@ export async function probeReceipt(rpc, txHash, expectedChainId) {
   if (gasUsed <= 0n || gasPrice <= 0n) throw Error('Missing gas evidence');
   const executionWei = gasUsed * gasPrice;
   const l1FeeWei = receipt.l1Fee == null ? null : BigInt(receipt.l1Fee);
+  if (l1FeeWei !== null && l1FeeWei < 0n) throw Error('Invalid L1 fee');
   const after = await rpc('eth_getTransactionReceipt', [txHash]);
   if (!after || after.transactionHash?.toLowerCase() !== receipt.transactionHash.toLowerCase() || after.blockHash?.toLowerCase() !== receipt.blockHash.toLowerCase() || after.blockNumber !== receipt.blockNumber || after.transactionIndex !== receipt.transactionIndex || after.status !== receipt.status || after.gasUsed !== receipt.gasUsed || after.effectiveGasPrice !== receipt.effectiveGasPrice || after.l1Fee !== receipt.l1Fee) throw Error('Receipt changed during observation');
   const finalBlock = await rpc('eth_getBlockByHash', [receipt.blockHash, false]);
   if (!finalBlock || finalBlock.hash?.toLowerCase() !== receipt.blockHash.toLowerCase() || finalBlock.number !== block.number || !Array.isArray(finalBlock.transactions) || finalBlock.transactions.length !== block.transactions.length || finalBlock.transactions[Number(index)]?.toLowerCase() !== txHash.toLowerCase() || finalBlock.transactions.some((hash, i) => hash.toLowerCase() !== block.transactions[i]?.toLowerCase())) throw Error('Block changed during observation');
-  if (BigInt(await rpc('eth_chainId', [])) !== BigInt(expectedChainId)) throw Error('Chain changed during observation');
-  return { chainId: String(expectedChainId), txHash: txHash.toLowerCase(), blockHash: receipt.blockHash.toLowerCase(), gasUsed: gasUsed.toString(), effectiveGasPriceWei: gasPrice.toString(), executionWei: executionWei.toString(), l1FeeWei: l1FeeWei?.toString() ?? null, knownTotalWei: (executionWei + (l1FeeWei ?? 0n)).toString(), networkFeeEvidenceComplete: String(expectedChainId) === '1' || (String(expectedChainId) === '8453' && l1FeeWei !== null), costComplete: false, note: 'Does not include relayer, settlement, authorization, deployment, or cross-chain costs; Arbitrum L1 gas is embedded in gasUsed and must not be double counted.' };
+  if (BigInt(await rpc('eth_chainId', [])) !== canonicalChainId) throw Error('Chain changed during observation');
+  return { chainId: canonicalChainId.toString(), txHash: txHash.toLowerCase(), blockHash: receipt.blockHash.toLowerCase(), gasUsed: gasUsed.toString(), effectiveGasPriceWei: gasPrice.toString(), executionWei: executionWei.toString(), l1FeeWei: l1FeeWei?.toString() ?? null, knownTotalWei: (executionWei + (l1FeeWei ?? 0n)).toString(), networkFeeEvidenceComplete: canonicalChainId === 1n || (canonicalChainId === 8453n && l1FeeWei !== null), costComplete: false, note: 'Does not include relayer, settlement, authorization, deployment, or cross-chain costs; Arbitrum L1 gas is embedded in gasUsed and must not be double counted.' };
 }
 export async function httpRpc(url, method, params) {
   const res = await fetch(url, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0',id:1,method,params}), signal: AbortSignal.timeout(15000) });
