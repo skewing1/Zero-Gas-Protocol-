@@ -45,7 +45,9 @@ export async function collectPinnedSnapshot(rpc, { chainId, blockNumber, blockHa
       : await rpc('eth_call', [{ to: asset, data: balanceOf(recipient) }, selector]);
     if (asset !== 'native' && (typeof raw !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(raw)))
       throw Error('Invalid ERC20 balanceOf return');
-    const balance = quantity(raw, 'balance');
+    // ABI uint256 balanceOf returns a fixed-width 32-byte word, normally zero-padded.
+    // JSON-RPC quantities (eth_getBalance) are minimal-width instead.
+    const balance = asset === 'native' ? quantity(raw, 'balance') : BigInt(raw);
     if (balance < 0n) throw Error('Negative balance');
     balances.push({ recipient, asset, balanceWei: balance.toString() });
   }
