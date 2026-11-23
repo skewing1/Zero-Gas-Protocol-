@@ -27,3 +27,16 @@ test('reject missing Base evidence',()=>assert.throws(()=>withReceiptFeeEvidence
 test('reject cross-chain comparison',()=>assert.throws(()=>compareReceiptEvidence(path('1',1,100),path('8453',2,100,{l1Fee:'0'})),/Cross-chain/));
 test('reject reused receipt',()=>assert.throws(()=>compareReceiptEvidence(path('1',1,100),path('1',1,50)),/reuse/));
 test('reject non-equivalent recipient outcome',()=>{const a=path('1',1,100),b=path('1',2,50);b.outcome[0].deltaWei='101';assert.throws(()=>compareReceiptEvidence(a,b),/Non-equivalent/)});
+
+test('hex RPC chain IDs normalize before equivalent cost comparison', () => {
+ const baseline=path('0x2105', 10, 100, {l1Fee:'0'});
+ const candidate=path('8453', 11, 50, {l1Fee:'0'});
+ const result=compareReceiptEvidence(baseline,candidate);
+ assert.equal(result.baseline.chainId,'8453');
+ assert.equal(result.savingsBasisPoints,'5000');
+});
+test('reject noncanonical or zero chain identifiers', () => {
+ for (const chainId of ['0x00','08453','0','0x0','0xzz']) {
+  assert.throws(()=>withReceiptFeeEvidence(path(chainId,12,100,{l1Fee:'0'})),/chainId/);
+ }
+});
