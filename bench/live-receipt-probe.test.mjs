@@ -41,3 +41,24 @@ test('accepts transaction at its actual nonzero block index',async()=>{
  const result=await probeReceipt(fixture({eth_getTransactionByHash:tx,eth_getTransactionReceipt:receipt,eth_getBlockByHash:block}),H,'8453');
  assert.equal(result.txHash,H);
 });
+
+test('rejects receipt index mutation between reads',async()=>{
+ const base=fixture();let n=0;
+ await assert.rejects(probeReceipt((m)=>m==='eth_getTransactionReceipt'&&++n===2?{...base(m),transactionIndex:'0x1'}:base(m),H,'8453'),/Receipt changed/);
+});
+test('rejects receipt transaction hash mutation between reads',async()=>{
+ const base=fixture();let n=0;
+ await assert.rejects(probeReceipt((m)=>m==='eth_getTransactionReceipt'&&++n===2?{...base(m),transactionHash:'0x'+'aa'.repeat(32)}:base(m),H,'8453'),/Receipt changed/);
+});
+test('rejects reordered final block even if transaction still present',async()=>{
+ const base=fixture(),other='0x'+'ef'.repeat(32),tx={...base('eth_getTransactionByHash'),transactionIndex:'0x1'},receipt={...base('eth_getTransactionReceipt'),transactionIndex:'0x1'};
+ let n=0;const initial={...base('eth_getBlockByHash'),transactions:[other,H]};
+ const rpc=(m)=>m==='eth_getTransactionByHash'?tx:m==='eth_getTransactionReceipt'?receipt:m==='eth_getBlockByHash'&&++n===2?{...initial,transactions:[H,other]}:m==='eth_getBlockByHash'?initial:base(m);
+ await assert.rejects(probeReceipt(rpc,H,'8453'),/Block changed/);
+});
+test('rejects changed unrelated block transaction during final observation',async()=>{
+ const base=fixture(),other='0x'+'ef'.repeat(32),changed='0x'+'aa'.repeat(32),tx={...base('eth_getTransactionByHash'),transactionIndex:'0x1'},receipt={...base('eth_getTransactionReceipt'),transactionIndex:'0x1'};
+ let n=0;const initial={...base('eth_getBlockByHash'),transactions:[other,H]};
+ const rpc=(m)=>m==='eth_getTransactionByHash'?tx:m==='eth_getTransactionReceipt'?receipt:m==='eth_getBlockByHash'&&++n===2?{...initial,transactions:[changed,H]}:m==='eth_getBlockByHash'?initial:base(m);
+ await assert.rejects(probeReceipt(rpc,H,'8453'),/Block changed/);
+});
