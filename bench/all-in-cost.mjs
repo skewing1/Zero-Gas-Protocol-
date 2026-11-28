@@ -22,5 +22,5 @@ export function compareEquivalentPayments(baseline, optimized) {
   const delta = base - opt;
   // Basis points, truncation toward zero; negative means optimized is more expensive.
   const savingsBps = delta * 10000n / base;
-  return {baselineWei:base.toString(),optimizedWei:opt.toString(),differenceWei:delta.toString(),savingsBps:savingsBps.toString(),above45Percent:savingsBps>4500n, paymentCount:baseline.paymentCount};
+  return {baselineWei:base.toString(),optimizedWei:opt.toString(),differenceWei:delta.toString(),savingsBps:savingsBps.toString(),above45Percent:delta*100n>base*45n, paymentCount:baseline.paymentCount};
 }
