@@ -12,3 +12,5 @@ test('rejects unverifiable finality',()=>assert.throws(()=>compareEquivalentPaym
 test('rejects zero baseline',()=>assert.throws(()=>compareEquivalentPayments(p('0'),p('0')), /Zero baseline/));
 test('reports increased cost as negative savings',()=>assert.equal(compareEquivalentPayments(p('100'),p('120')).savingsBps,'-2000'));
 test('exact 45% is not greater than 45%',()=>assert.equal(compareEquivalentPayments(p('100'),p('55')).above45Percent,false));
+test('fractional basis point above 45% passes exact gate',()=>{const x=compareEquivalentPayments(p('100000'),p('54999'));assert.equal(x.savingsBps,'4500');assert.equal(x.above45Percent,true);});
+test('fractional basis point below 45% fails exact gate',()=>assert.equal(compareEquivalentPayments(p('100000'),p('55001')).above45Percent,false));
