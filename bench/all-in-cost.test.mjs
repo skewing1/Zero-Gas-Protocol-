@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {compareEquivalentPayments,totalCost} from './all-in-cost.mjs';
+const digest='0x'+'ab'.repeat(32);
+const p=(executionWei='100', overrides={})=>({executionWei,dataWei:'0',authorizationWei:'0',relayerWei:'0',settlementWei:'0',deploymentWei:'0',crossChainWei:'0',outcomeVerified:true,receiptsVerified:true,finalityVerified:true,outcomeDigest:digest,paymentCount:1,...overrides});
+test('measured equivalent outcomes exceed 45% only if all-in cost does',()=>{assert.deepEqual(compareEquivalentPayments(p('100'),p('50')),{baselineWei:'100',optimizedWei:'50',differenceWei:'50',savingsBps:'5000',above45Percent:true,paymentCount:1});});
+test('relayer and settlement overhead can eliminate apparent savings',()=>{const x=compareEquivalentPayments(p('100'),p('30',{relayerWei:'30',settlementWei:'30'}));assert.equal(x.savingsBps,'1000');assert.equal(x.above45Percent,false);});
+test('rejects missing components rather than treating them as zero',()=>{const q=p();delete q.dataWei;assert.throws(()=>totalCost(q),/dataWei/);});
+test('rejects negative or decimal costs',()=>{assert.throws(()=>totalCost(p('-1')),/executionWei/);assert.throws(()=>totalCost(p('1.5')),/executionWei/);});
+test('rejects unmatched recipient outcomes',()=>assert.throws(()=>compareEquivalentPayments(p(),p('50',{outcomeDigest:'0x'+'cd'.repeat(32)})),/Non-equivalent/));
+test('rejects unverifiable finality',()=>assert.throws(()=>compareEquivalentPayments(p(),p('50',{finalityVerified:false})),/Unverified/));
+test('rejects zero baseline',()=>assert.throws(()=>compareEquivalentPayments(p('0'),p('0')), /Zero baseline/));
+test('reports increased cost as negative savings',()=>assert.equal(compareEquivalentPayments(p('100'),p('120')).savingsBps,'-2000'));
+test('exact 45% is not greater than 45%',()=>assert.equal(compareEquivalentPayments(p('100'),p('55')).above45Percent,false));
+test('fractional basis point above 45% passes exact gate',()=>{const x=compareEquivalentPayments(p('100000'),p('54999'));assert.equal(x.savingsBps,'4500');assert.equal(x.above45Percent,true);});
+test('fractional basis point below 45% fails exact gate',()=>assert.equal(compareEquivalentPayments(p('100000'),p('55001')).above45Percent,false));
